@@ -1,0 +1,6 @@
+node_modules/
+obsidian-plugin/main.js
+obsidian-plugin/main.js.map
+artifacts/
+.DS_Store
+*.log
