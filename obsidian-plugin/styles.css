@@ -1,0 +1,36 @@
+.wikiship-view { padding: var(--size-4-4); }
+.wikiship-view h4 { margin: 0 0 var(--size-4-3); }
+.wikiship-view h5 { margin: var(--size-4-2) 0; }
+.wikiship-actions { display: flex; flex-wrap: wrap; gap: var(--size-4-2); margin: var(--size-4-2) 0; }
+.wikiship-actions button { font-size: var(--font-ui-small); }
+.wikiship-muted { color: var(--text-muted); font-size: var(--font-ui-small); }
+.wikiship-path { overflow-wrap: anywhere; }
+.wikiship-file-group { border-top: 1px solid var(--background-modifier-border); padding: var(--size-4-3) 0; }
+.wikiship-context-item, .wikiship-change-item { padding: var(--size-4-2) 0; }
+.wikiship-text-button { background: transparent !important; box-shadow: none !important; border: none; padding: 0; height: auto; text-align: left; white-space: normal; overflow-wrap: anywhere; color: var(--text-normal); }
+.wikiship-text-button:hover { color: var(--text-accent); text-decoration: underline; }
+.wikiship-text-button:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 3px; }
+.wikiship-context-preview { color: var(--text-muted); font-size: var(--font-ui-small); margin: var(--size-4-1) 0; overflow-wrap: anywhere; }
+.wikiship-status { display: inline-block; margin-left: var(--size-4-2); font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.wikiship-status-stale, .wikiship-status-uncertain, .wikiship-warning { color: var(--text-warning); }
+.wikiship-status-changed { color: var(--text-accent); }
+.wikiship-clear { margin-top: var(--size-4-3); }
+.wikiship-change-time { margin-top: var(--size-4-1); }
+.wikiship-history { margin-top: var(--size-4-2); }
+.wikiship-history summary, .wikiship-snapshots summary { cursor: pointer; font-size: var(--font-ui-small); color: var(--text-muted); }
+.wikiship-review-modal { width: min(1000px, 90vw); }
+.wikiship-review-modal .modal-content { overflow-y: auto; }
+.wikiship-diff { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 45vh; overflow-y: auto; font-size: var(--font-smaller); background: var(--background-secondary); padding: var(--size-4-3); }
+.wikiship-diff span { display: block; white-space: pre-wrap; }
+.wikiship-diff-added { background: var(--background-modifier-success); color: var(--text-normal); }
+.wikiship-diff-removed { background: var(--background-modifier-error); color: var(--text-normal); }
+.wikiship-diff-unchanged { color: var(--text-muted); }
+.wikiship-snapshot-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--size-4-3); }
+.wikiship-source { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow-y: auto; font-size: var(--font-smaller); background: var(--background-secondary); padding: var(--size-4-2); }
+.wikiship-hash { font-size: var(--font-ui-smaller); color: var(--text-faint); overflow-wrap: anywhere; margin: var(--size-4-2) 0; }
+.cm-gutter.wikiship-gutter { width: 14px; }
+.wikiship-gutter-marker { border: 0; border-radius: 0; box-shadow: none !important; background: transparent !important; padding: 0; width: 12px; height: 1.35em; line-height: 1; cursor: pointer; font-size: 10px; color: var(--text-accent); opacity: .65; }
+.wikiship-gutter-marker:hover, .wikiship-gutter-marker:focus-visible { opacity: 1; }
+.wikiship-gutter-inserted { font-size: 20px; font-weight: bold; }
+.wikiship-gutter-deleted { color: var(--text-warning); }
+@media (max-width: 650px) { .wikiship-snapshot-columns { grid-template-columns: 1fr; } }
