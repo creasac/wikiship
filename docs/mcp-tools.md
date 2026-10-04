@@ -1,14 +1,14 @@
-# WikiShip MCP tools
+# wikiship MCP tools
 
-WikiShip registers its tools on **Local REST API with MCP 5.3.0 or later**, using the package's public `getAPI(app, manifest, 3)` and `addMcpTool(definition)` APIs. Enable both plugins in the same desktop vault. WikiShip's status bar reports whether registration succeeded; the **Reconnect Local REST API** command retries registration. Unloading WikiShip unregisters its tools.
+wikiship registers its tools on **Local REST API with MCP 5.3.0 or later**, using the package's public `getAPI(app, manifest, 3)` and `addMcpTool(definition)` APIs. Enable both plugins in the same desktop vault. wikiship's status bar reports whether registration succeeded; the **Reconnect Local REST API** command retries registration. Unloading wikiship unregisters its tools.
 
-The host owns HTTP, authentication, protocol negotiation, and sessions. WikiShip does not open another network listener. Public extension API documentation: [Local REST API extension interface](https://github.com/coddingtonbear/obsidian-local-rest-api/blob/main/src/publicApi.ts).
+The host owns HTTP, authentication, protocol negotiation, and sessions. wikiship does not open another network listener. Public extension API documentation: [Local REST API extension interface](https://github.com/coddingtonbear/obsidian-local-rest-api/blob/main/src/publicApi.ts).
 
 ## Recommended client connection
 
-The host's shared MCP endpoint also exposes its own file writes and arbitrary Obsidian command execution. Its extension API does not provide a per-extension permission boundary to disable these. A direct connection therefore relies on an agent following instructions to use WikiShip mutations.
+The host's shared MCP endpoint also exposes its own file writes and arbitrary Obsidian command execution. Its extension API does not provide a per-extension permission boundary to disable these. A direct connection therefore relies on an agent following instructions to use wikiship mutations.
 
-Use the included **tools-only stdio bridge** when configuring an agent for attributed work. It connects to the same host endpoint and forwards the exact 18 WikiShip tools listed below and seven inspected host read tools: `vault_list`, `vault_read`, `vault_get_document_map`, `active_file_get_path`, `search_query`, `search_simple`, and `tag_list`. This reuses the host’s reading, structure, metadata, and Obsidian search capabilities. It refuses host write tools, command execution, unknown names, and names that merely start with `wikiship_`. It exposes no host resources or prompts. Host read tools follow the host’s access policy; WikiShip’s directory exclusions govern its own context and mutation tools, not host search results. Calls through another MCP connection, shell tools, or direct filesystem access are outside this boundary and do not acquire WikiShip provenance.
+Use the included **tools-only stdio bridge** when configuring an agent for attributed work. It connects to the same host endpoint and forwards the exact 18 wikiship tools listed below and seven inspected host read tools: `vault_list`, `vault_read`, `vault_get_document_map`, `active_file_get_path`, `search_query`, `search_simple`, and `tag_list`. This reuses the host’s reading, structure, metadata, and Obsidian search capabilities. It refuses host write tools, command execution, unknown names, and names that merely start with `wikiship_`. It exposes no host resources or prompts. Host read tools follow the host’s access policy; wikiship’s directory exclusions govern its own context and mutation tools, not host search results. Calls through another MCP connection, shell tools, or direct filesystem access are outside this boundary and do not acquire wikiship provenance.
 
 After `npm install` in this repository, configure a stdio MCP server with:
 
@@ -32,7 +32,7 @@ This JSON illustrates the common `mcpServers` format; clients with a different c
 
 Download the host's CA certificate using **Settings → Local REST API** and point `NODE_EXTRA_CA_CERTS` to the saved file. Node reads that environment variable when it starts. The default URL is `https://127.0.0.1:27124/mcp/`. If you explicitly enable the host's local HTTP server, `http://127.0.0.1:27123/mcp/` is also supported and does not use the CA variable. The bridge accepts loopback addresses only and refuses URL credentials, queries, fragments, and HTTP redirects. TLS verification remains enabled.
 
-When the client lists tools, expect the installed WikiShip tools and the seven approved host read tools. `vault_write`, `command_execute`, `open_file`, and upload-URL tools must be absent. The host’s `open_file` can create a missing file, so it is deliberately excluded. Restart the client connection after changing its environment. If Obsidian restarts, reconnect the client so a new host session is negotiated.
+When the client lists tools, expect the installed wikiship tools and the seven approved host read tools. `vault_write`, `command_execute`, `open_file`, and upload-URL tools must be absent. The host’s `open_file` can create a missing file, so it is deliberately excluded. Restart the client connection after changing its environment. If Obsidian restarts, reconnect the client so a new host session is negotiated.
 
 ## Context tools
 
@@ -76,7 +76,7 @@ All paths are vault-relative, with `/` separators. All editing offsets are zero-
 | `wikiship_move_file` | `path`, `target`, `expectedHash` | Move to an absent path. |
 | `wikiship_rename_file` | `path`, `name`, `expectedHash` | Rename within the same directory; `name` cannot contain `/` or `\`. |
 
-Every mutation also accepts optional `agent` and `session` strings. These are **self-reported labels**, not authenticated client identity. Authoritative provenance means the operation passed through a WikiShip mutation tool. The host extension callback does not provide trustworthy client/session identity.
+Every mutation also accepts optional `agent` and `session` strings. These are **self-reported labels**, not authenticated client identity. Authoritative provenance means the operation passed through a wikiship mutation tool. The host extension callback does not provide trustworthy client/session identity.
 
 Successful calls return the operation ID, paths, kind, status, review state, before/after hashes, and attribution labels. Full snapshots remain in the local journal for human review and recovery. A conflict, invalid argument, or write failure returns an MCP `isError` result. Do not blindly retry a failed mutation: inspect current state and the operation status first. An uncertain operation blocks subsequent writes until the human runs recovery.
 

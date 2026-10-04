@@ -1,6 +1,6 @@
 # Architecture
 
-WikiShip is a desktop Obsidian plugin. `src/context` manages references to explicit human context; `src/provenance` owns state and mutations; `src/review` supplies native views and CodeMirror gutters; `src/mcp` registers tool definitions with Local REST API. The launch adapter lives in `src/integrations/chatgpt` and contains no model API calls.
+wikiship is a desktop Obsidian plugin. `src/context` manages references to explicit human context; `src/provenance` owns state and mutations; `src/review` supplies native views and CodeMirror gutters; `src/mcp` registers tool definitions with Local REST API. The launch adapter lives in `src/integrations/chatgpt` and contains no model API calls.
 
 ## Context references
 
@@ -12,7 +12,7 @@ Current heading positions come from the established Lezer Markdown parser becaus
 
 ## Mutation transaction
 
-1. Serialize WikiShip operations through a queue.
+1. Serialize wikiship operations through a queue.
 2. Check a vault-relative path, symlinks, exclusions, size, absence/precondition hash, and destination.
 3. Save a `prepared` operation with complete before/after snapshots before changing any file.
 4. Recheck the file and its open editors. Use Obsidian `Vault.process`/`DataAdapter.process` for guarded text updates, and vault APIs for creation, deletion, and rename. Unsupported project extensions use the adapter when not indexed as `TFile`.
@@ -34,18 +34,18 @@ Gutter positions are derived only through verified journal hash chains. Unknown 
 
 ## MCP and trust boundary
 
-[Local REST API 5.3.0](https://github.com/coddingtonbear/obsidian-local-rest-api/tree/5.3.0) exposes extension API v3, including typed tool registration and cleanup. WikiShip re-registers when the host loads/reloads, and unregisters on unload. HTTP, authentication, certificate handling, and MCP sessions belong to the host. No second network server is started.
+[Local REST API 5.3.0](https://github.com/coddingtonbear/obsidian-local-rest-api/tree/5.3.0) exposes extension API v3, including typed tool registration and cleanup. wikiship re-registers when the host loads/reloads, and unregisters on unload. HTTP, authentication, certificate handling, and MCP sessions belong to the host. No second network server is started.
 
-The host API cannot remove the host's own writes for one extension. Direct clients can therefore bypass WikiShip. `adapters/stdio-bridge.mjs` is a generic client-side MCP bridge to the same endpoint: it passes an exact list of WikiShip tools plus seven inspected read/search tools. It rejects arbitrary commands, raw writes, copy/move/delete, upload grants, and even `open_file` because that tool can create an absent note. Read-only annotations alone never grant access. Resources/prompts are not forwarded.
+The host API cannot remove the host's own writes for one extension. Direct clients can therefore bypass wikiship. `adapters/stdio-bridge.mjs` is a generic client-side MCP bridge to the same endpoint: it passes an exact list of wikiship tools plus seven inspected read/search tools. It rejects arbitrary commands, raw writes, copy/move/delete, upload grants, and even `open_file` because that tool can create an absent note. Read-only annotations alone never grant access. Resources/prompts are not forwarded.
 
-This bridge controls tools exposed by that connection. A client with another connection, the host API key, or shell/filesystem access can still write outside WikiShip. Such writes are not attributed. Human review/revert tools are not exposed to agents. Optional agent/session strings are explicitly self-reported: the host callback supplies no verified client identity.
+This bridge controls tools exposed by that connection. A client with another connection, the host API key, or shell/filesystem access can still write outside wikiship. Such writes are not attributed. Human review/revert tools are not exposed to agents. Optional agent/session strings are explicitly self-reported: the host callback supplies no verified client identity.
 
 ## Storage, projects, and sync
 
-Files remain in the original vault/project. There is no import, proprietary document format, search index, cloud service, model provider, or sync layer. Default generated-directory exclusions apply only to WikiShip. Users edit these rules in WikiShip settings; Obsidian configuration is otherwise untouched.
+Files remain in the original vault/project. There is no import, proprietary document format, search index, cloud service, model provider, or sync layer. Default generated-directory exclusions apply only to wikiship. Users edit these rules in wikiship settings; Obsidian configuration is otherwise untouched.
 
-`<configDir>/plugins/wikiship/state.json` holds pins and the journal. `state.lock` and `state.lock.guard` enforce the local writer lock; both are ownership metadata, not journal backups. Snapshot retention is unbounded in this initial version; review does not purge recovery data. Users should arrange their own backup and sync policies, avoiding simultaneous synchronization/writing of the journal. When state changes externally, WikiShip stops instead of silently merging it.
+`<configDir>/plugins/wikiship/state.json` holds pins and the journal. `state.lock` and `state.lock.guard` enforce the local writer lock; both are ownership metadata, not journal backups. Snapshot retention is unbounded in this initial version; review does not purge recovery data. Users should arrange their own backup and sync policies, avoiding simultaneous synchronization/writing of the journal. When state changes externally, wikiship stops instead of silently merging it.
 
 ## Launch adapter
 
-The [official desktop deep-link reference](https://learn.chatgpt.com/docs/reference/commands#deep-links) documents `codex://threads/new?path=...&prompt=...`. Both values are encoded separately. The path is the vault root, and the prompt includes pinned IDs and tool names, with no API keys or copied note bodies. No published WikiShip desktop-plugin identifier exists yet, so the adapter uses real tool references rather than inventing a `plugin://` mention. The composer remains unsent; other clients can use the copy-prompt command.
+The [official desktop deep-link reference](https://learn.chatgpt.com/docs/reference/commands#deep-links) documents `codex://threads/new?path=...&prompt=...`. Both values are encoded separately. The path is the vault root, and the prompt includes pinned IDs and tool names, with no API keys or copied note bodies. No published wikiship desktop-plugin identifier exists yet, so the adapter uses real tool references rather than inventing a `plugin://` mention. The composer remains unsent; other clients can use the copy-prompt command.

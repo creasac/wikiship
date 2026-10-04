@@ -15,13 +15,13 @@ export class Journal {
   private emit() {
     for (const listener of this.listeners) {
       // A view failing to render must not turn a committed mutation into a failed one.
-      try { listener(); } catch (error) { console.error('WikiShip journal subscriber failed', error); }
+      try { listener(); } catch (error) { console.error('wikiship journal subscriber failed', error); }
     }
   }
   private run<T>(task: () => Promise<T>, initializing = false): Promise<T> {
-    if (this.closed) return Promise.reject(new Error('WikiShip is unloading. No new changes are accepted.'));
+    if (this.closed) return Promise.reject(new Error('wikiship is unloading. No new changes are accepted.'));
     return this.queue.run(async () => {
-      if (!initializing && !this.loaded) throw new Error('The WikiShip journal has not loaded successfully.');
+      if (!initializing && !this.loaded) throw new Error('The wikiship journal has not loaded successfully.');
       return task();
     });
   }

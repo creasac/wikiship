@@ -13,7 +13,7 @@ npm run build
 
 `npm run check` runs those final three checks together. `npm run dev -w obsidian-plugin` watches the plugin source. Reload the plugin in Obsidian after a build. The production bundle externalizes Obsidian, Electron, and CodeMirror; bundling a second CodeMirror instance would break editor extensions.
 
-The Local REST API npm package supplies only its small extension helper and public types; users install the actual host plugin separately. The repository pins compatible Obsidian/CodeMirror types and includes the npm lockfile. Host 5.3.0 requires Obsidian 1.13.1 or later, which is also WikiShip's declared minimum.
+The Local REST API npm package supplies only its small extension helper and public types; users install the actual host plugin separately. The repository pins compatible Obsidian/CodeMirror types and includes the npm lockfile. Host 5.3.0 requires Obsidian 1.13.1 or later, which is also wikiship's declared minimum.
 
 ## Automated checks
 
@@ -67,15 +67,15 @@ The harness writes `artifacts/obsidian-acceptance.json` and `artifacts/obsidian-
 
 Use a disposable ordinary project folder containing Markdown and source files. Install both plugins and connect an MCP client using the bridge guide.
 
-1. Pin a two-paragraph selection in note A and a section in note B. Switch tabs and reload WikiShip; both pins should remain.
+1. Pin a two-paragraph selection in note A and a section in note B. Switch tabs and reload wikiship; both pins should remain.
 2. Fetch context through MCP. Verify exact content, offsets, hashes, and stale status after modifying a pinned selection.
-3. Change B through a WikiShip tool. Verify immediate editor update, subtle gutter marker, sidebar entry, and literal before/after diff.
+3. Change B through a wikiship tool. Verify immediate editor update, subtle gutter marker, sidebar entry, and literal before/after diff.
 4. Mark reviewed, then revert. Confirm review status does not prevent a safe revert.
 5. Repeat an AI edit, then type a human change before reverting. Verify a conflict and preservation of the human edit.
 6. Create, move, rename, and delete a file through MCP; inspect and restore it. Repeat delete/restore with a binary file within the 5 MiB limit.
 7. Verify ordinary typing and direct external writes create no AI journal entry.
-8. Disable/re-enable the host and WikiShip in either order. Verify tools are cleaned up and registered once, and context/journal state survives.
-9. Invoke **Ask ChatGPT / Open in Codex** with the desktop app installed and its URL handler registered. Confirm the actual project path and prefilled WikiShip instructions. The prompt should remain unsent.
+8. Disable/re-enable the host and wikiship in either order. Verify tools are cleaned up and registered once, and context/journal state survives.
+9. Invoke **Ask ChatGPT / Open in Codex** with the desktop app installed and its URL handler registered. Confirm the actual project path and prefilled wikiship instructions. The prompt should remain unsent.
 
 Native launching of the separate ChatGPT/Codex desktop app depends on that machine's URL handler and is a separate manual check from the Obsidian fixture. The schema used by the adapter is [officially documented](https://learn.chatgpt.com/docs/reference/commands#deep-links).
 
@@ -83,8 +83,8 @@ Native launching of the separate ChatGPT/Codex desktop app depends on that machi
 
 If a mutation reports finalization failure, do not repeat it blindly. Inspect **AI Changes** and run **Recover interrupted operations**. If recovery reports uncertainty, inspect the saved before/after states and resolve the filesystem state before retrying. Recovery never overwrites files.
 
-During disable/re-enable in the same Obsidian renderer, startup waits for the previous WikiShip instance to finish accepted operations and release its own journal lock. This wait survives plugin module reloads and does not delay other vaults. Disabling a still-starting instance cancels further setup and waits for any in-flight lock acquisition before cleanup. This in-process wait is separate from the dead-owner recovery below.
+During disable/re-enable in the same Obsidian renderer, startup waits for the previous wikiship instance to finish accepted operations and release its own journal lock. This wait survives plugin module reloads and does not delay other vaults. Disabling a still-starting instance cancels further setup and waits for any in-flight lock acquisition before cleanup. This in-process wait is separate from the dead-owner recovery below.
 
-If plugin startup rejects `state.json`, preserve it and repair from a known backup; do not replace it with an empty object. After a process exits before asynchronous cleanup finishes, WikiShip automatically recovers a lock only when its record names this host and the OS reports that its PID no longer exists. A recovery guard serializes competing reclaimers; live PIDs (including possibly reused PIDs), foreign hosts, permission errors, corrupt records, and symlinks fail closed. Preserve unverifiable locks for inspection. Never delete a lock while another instance may be using it. Keep the journal and its locks local to one host; synchronization of plugin state is unsupported. Filesystems without the required exclusive hard-link/directory operations fail closed.
+If plugin startup rejects `state.json`, preserve it and repair from a known backup; do not replace it with an empty object. After a process exits before asynchronous cleanup finishes, wikiship automatically recovers a lock only when its record names this host and the OS reports that its PID no longer exists. A recovery guard serializes competing reclaimers; live PIDs (including possibly reused PIDs), foreign hosts, permission errors, corrupt records, and symlinks fail closed. Preserve unverifiable locks for inspection. Never delete a lock while another instance may be using it. Keep the journal and its locks local to one host; synchronization of plugin state is unsupported. Filesystems without the required exclusive hard-link/directory operations fail closed.
 
 The journal retains complete snapshots, including deleted content. There is no automatic pruning or journal sync merge in v1. A later retention/export feature should preserve recovery data until the user explicitly discards it.

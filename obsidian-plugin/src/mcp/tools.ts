@@ -17,7 +17,7 @@ export interface WikiShipContext {
 }
 
 const path = z.string().min(1).max(4096).describe('Vault-relative file path with forward slashes.');
-const expectedHash = z.string().regex(/^[a-f0-9]{64}$/).describe('SHA-256 of the entire current file, obtained from WikiShip.');
+const expectedHash = z.string().regex(/^[a-f0-9]{64}$/).describe('SHA-256 of the entire current file, obtained from wikiship.');
 const offset = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const content = z.string().max(2_000_000).describe('Literal replacement text.');
 const identity = {
@@ -40,7 +40,7 @@ function tool<S extends z.ZodRawShape>(name: string, description: string, shape:
       catch (error) {
         const message = error instanceof z.ZodError
           ? `Invalid arguments: ${error.issues.map(issue => `${issue.path.join('.') || 'arguments'}: ${issue.message}`).join('; ')}`
-          : error instanceof Error ? error.message : 'WikiShip operation failed.';
+          : error instanceof Error ? error.message : 'wikiship operation failed.';
         return { isError: true, content: [{ type: 'text', text: message }] };
       }
     },

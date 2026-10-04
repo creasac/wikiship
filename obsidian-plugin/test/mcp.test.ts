@@ -87,7 +87,7 @@ function data(result: Awaited<ReturnType<Client['callTool']>>): Record<string, u
   return JSON.parse(block.text) as Record<string, unknown>;
 }
 
-describe('WikiShip through a real MCP SDK client', () => {
+describe('wikiship through a real MCP SDK client', () => {
   it('lists schemas, pins across files, reads current context, and journals a section edit', async () => {
     const { client, context, journal, store, files } = await fixture();
     const list = await client.listTools();

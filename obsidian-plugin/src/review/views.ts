@@ -44,7 +44,7 @@ export class ContextView extends ItemView {
   private opened = false;
   constructor(leaf: WorkspaceLeaf, readonly context: EditorContext, readonly journal: Journal) { super(leaf); }
   getViewType() { return CONTEXT_VIEW_TYPE; }
-  getDisplayText() { return 'WikiShip context'; }
+  getDisplayText() { return 'wikiship context'; }
   getIcon() { return WIKISHIP_ICON_ID; }
   async onOpen() {
     this.opened = true;
@@ -64,7 +64,7 @@ export class ContextView extends ItemView {
     const items = await this.context.getContext();
     if (!this.opened || generation !== this.generation) return;
     const root = this.contentEl; root.empty();
-    root.createEl('h4', { text: 'WikiShip context' });
+    root.createEl('h4', { text: 'wikiship context' });
     const tools = root.createDiv('wikiship-actions');
     action(tools, 'Selection', () => this.context.addSelection());
     action(tools, 'Section', () => this.context.addSection());
@@ -133,7 +133,7 @@ export class ChangesView extends ItemView {
       action(root, 'Recover interrupted operations', () => this.journal.recover());
     }
     if (!all.length) {
-      root.createEl('p', { cls: 'wikiship-muted', text: 'Changes made through WikiShip appear here. Your ordinary edits are never labeled as AI changes.' }); return;
+      root.createEl('p', { cls: 'wikiship-muted', text: 'Changes made through wikiship appear here. Your ordinary edits are never labeled as AI changes.' }); return;
     }
     root.createEl('p', { cls: 'wikiship-muted', text: `${unreviewed.length} unreviewed · click a change to inspect before and after` });
     const groups = new Map<string, Operation[]>();

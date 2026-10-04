@@ -177,7 +177,7 @@ describe('plugin journal lifecycle', () => {
     await expect(shutdown).rejects.toThrow('Synthetic cleanup failure');
     await expect(plugin().onload()).rejects.toThrow('already open');
     expect(await readFile(lock, 'utf8')).toBe(before);
-    expect(reported).toHaveBeenCalledWith('WikiShip could not close its journal', expect.any(Error));
+    expect(reported).toHaveBeenCalledWith('wikiship could not close its journal', expect.any(Error));
     // Restore normal owner-token cleanup of this synthetic test fixture only.
     await close.call(owner);
     const next = plugin(); await next.onload(); next.onunload(); await waitForJournalShutdown(directory);

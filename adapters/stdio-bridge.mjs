@@ -25,7 +25,7 @@ const failure = message => ({ isError: true, content: [{ type: 'text', text: mes
 
 /** Construct an MCP tools-only proxy over an already connected upstream client. */
 export function createBridge(upstream) {
-  const server = new Server({ name: 'wikiship', version: '0.1.0' }, { capabilities: { tools: { listChanged: true } } });
+  const server = new Server({ name: 'wikiship', version: '0.1.3' }, { capabilities: { tools: { listChanged: true } } });
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const tools = [];
     let cursor;
@@ -34,7 +34,7 @@ export function createBridge(upstream) {
     for (let page = 0; page < 20; page++) {
       let batch;
       try { batch = await upstream.listTools(cursor ? { cursor } : undefined); }
-      catch { throw new Error('Cannot list WikiShip tools. Check the local host connection.'); }
+      catch { throw new Error('Cannot list wikiship tools. Check the local host connection.'); }
       tools.push(...batch.tools.filter(tool => allowed.has(tool.name)));
       cursor = batch.nextCursor;
       if (!cursor) return { tools };
@@ -42,13 +42,13 @@ export function createBridge(upstream) {
     throw new Error('The local host returned too many tool-list pages.');
   });
   server.setRequestHandler(CallToolRequestSchema, async request => {
-    if (!allowed.has(request.params.name)) return failure('This tool is not available through the WikiShip bridge.');
+    if (!allowed.has(request.params.name)) return failure('This tool is not available through the wikiship bridge.');
     try {
       return await upstream.callTool({ name: request.params.name, arguments: request.params.arguments ?? {} });
     } catch {
       // Transport errors can include request details. Never echo auth headers or
       // the configured endpoint; application isError results pass through above.
-      return failure('The local WikiShip host request failed. Check Obsidian and its Local REST API connection.');
+      return failure('The local wikiship host request failed. Check Obsidian and its Local REST API connection.');
     }
   });
   upstream.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
@@ -74,7 +74,7 @@ export function readConfiguration(env) {
 
 export async function main() {
   const { url, token } = readConfiguration(process.env);
-  const upstream = new Client({ name: 'wikiship-bridge', version: '0.1.0' });
+  const upstream = new Client({ name: 'wikiship-bridge', version: '0.1.3' });
   const transport = new StreamableHTTPClientTransport(url, {
     requestInit: { headers: { Authorization: `Bearer ${token}` }, redirect: 'error' },
   });
@@ -98,7 +98,7 @@ export async function main() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch(error => {
     // Only our own configuration/connection errors reach here.
-    process.stderr.write(`WikiShip bridge: ${error instanceof Error ? error.message : 'Startup failed.'}\n`);
+    process.stderr.write(`wikiship bridge: ${error instanceof Error ? error.message : 'Startup failed.'}\n`);
     process.exitCode = 1;
   });
 }

@@ -138,7 +138,7 @@ try {
   client = await connect();
   const listed = await client.listTools();
   assert.equal(listed.tools.filter(tool => tool.name.startsWith('wikiship_')).length, 18);
-  passed('Native Obsidian loads WikiShip and registers 18 tools on the real host');
+  passed('Native Obsidian loads wikiship and registers 18 tools on the real host');
 
   await openNote('A.md');
   await page.evaluate(() => {
@@ -256,7 +256,7 @@ try {
   client = await connect();
   assert.equal((await client.listTools()).tools.filter(tool => tool.name.startsWith('wikiship_')).length, 18);
   assert.equal((await call('wikiship_get_context')).length, 2);
-  passed('Host plugin reload reconnects WikiShip registration on the same MCP endpoint');
+  passed('Host plugin reload reconnects wikiship registration on the same MCP endpoint');
 
   bridgeClient = new Client({ name: 'wikiship-native-stdio-acceptance', version: '1.0.0' });
   await bridgeClient.connect(new StdioClientTransport({ command: process.execPath,

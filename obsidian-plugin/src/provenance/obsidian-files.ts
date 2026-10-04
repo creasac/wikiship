@@ -11,8 +11,8 @@ export class ObsidianFiles implements WorkspaceFiles {
     let stat;
     try { stat = await fs.stat(absolute); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
-    if (!stat.isFile()) throw new Error('WikiShip operations require a file, not a directory.');
-    if (stat.size > MAX_FILE_BYTES) throw new Error('WikiShip v1 supports files up to 5 MiB.');
+    if (!stat.isFile()) throw new Error('wikiship operations require a file, not a directory.');
+    if (stat.size > MAX_FILE_BYTES) throw new Error('wikiship v1 supports files up to 5 MiB.');
     // Use Obsidian's uncached adapter read, including ordinary project files.
     const content = new Uint8Array(await this.app.vault.adapter.readBinary(path));
     if (content.byteLength > MAX_FILE_BYTES) throw new Error('File exceeds 5 MiB.');
