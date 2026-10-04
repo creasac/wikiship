@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
-import { hostname } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { hash, id, type State, type StateStore } from '../model';
+import { JournalWriterLock } from './writer-lock';
 export { MAX_FILE_BYTES } from '../model';
 
 export const DEFAULT_EXCLUSIONS = ['node_modules', 'dist', 'build', 'coverage', 'vendor', '.cache'];
@@ -49,12 +49,13 @@ async function assertNoSymlinks(root: string, path: string) {
 /** Atomic local persistence with a writer lock and detection of external changes. */
 export class AtomicStateStore implements StateStore {
   private expected: string | null = null;
-  private token = id();
+  private writer: JournalWriterLock;
   private locked = false;
   private closed = false;
-  constructor(readonly directory: string, private vaultRoot: string) {}
+  constructor(readonly directory: string, private vaultRoot: string) {
+    this.writer = new JournalWriterLock(directory, () => this.checkDirectory());
+  }
   private get path() { return join(this.directory, 'state.json'); }
-  private get lockPath() { return join(this.directory, 'state.lock'); }
   private async checkDirectory() {
     await assertNoSymlinks(this.vaultRoot, descendant(this.vaultRoot, this.directory).split(sep).join('/'));
   }
@@ -62,27 +63,10 @@ export class AtomicStateStore implements StateStore {
     await this.checkDirectory();
     await fs.mkdir(this.directory, { recursive: true });
     await this.checkDirectory();
-    const acquire = async () => {
-      const handle = await fs.open(this.lockPath, 'wx', 0o600);
-      try { await handle.writeFile(JSON.stringify({ pid: process.pid, host: hostname(), token: this.token })); await handle.sync(); }
-      finally { await handle.close(); }
-      this.locked = true;
-    };
-    try { await acquire(); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      const lock = JSON.parse(await fs.readFile(this.lockPath, 'utf8')) as { pid: number; host: string };
-      if (lock.host !== hostname() || !Number.isInteger(lock.pid) || lock.pid <= 0) throw new Error('WikiShip journal is locked by another instance.');
-      try { process.kill(lock.pid, 0); }
-      catch (check) {
-        // Two concurrent reclaimers could otherwise unlink each other's newly
-        // acquired lock. Never remove another instance's lock automatically.
-        if ((check as NodeJS.ErrnoException).code === 'ESRCH') throw new Error('A stale WikiShip journal lock remains. After closing other vault instances, remove state.lock from the WikiShip plugin folder and reload the plugin.');
-        throw check;
-      }
-      throw new Error('WikiShip journal is already open in another instance.');
-    }
+    await this.writer.open();
+    this.locked = true;
   }
+
   private async raw(): Promise<string | null> {
     await this.checkDirectory();
     try {
@@ -120,9 +104,7 @@ export class AtomicStateStore implements StateStore {
   async close() {
     this.closed = true;
     if (!this.locked) return;
-    await this.checkDirectory();
-    const lock = JSON.parse(await fs.readFile(this.lockPath, 'utf8')) as { token: string };
-    if (lock.token === this.token) await fs.unlink(this.lockPath);
+    await this.writer.close();
     this.locked = false;
   }
 }

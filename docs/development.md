@@ -24,6 +24,8 @@ The tests cover:
 - Write-ahead intent, concurrent mutation serialization, snapshot integrity, deletion recovery, binary preservation, and safe inverse operations.
 - Persistence failures before/after file writes, restart recovery, uncertain partial moves, inverse recovery direction, shutdown drain, and corrupted saved state.
 - Path traversal, symlinks, journal writer locks, external journal changes, and actual atomic store persistence in temporary directories.
+- Full process exit and forced termination, recovery of interrupted mutation intent, six simultaneous dead-owner reclaimers, delayed reclaimers, old-plugin contention, and preservation of live/foreign/unverifiable locks in synthetic subprocess fixtures.
+- Rapid plugin disable/re-enable across module reloads, accepted-write draining, cancellation during startup, and preservation of live locks when startup or cleanup fails (synthetic vaults, mocked desktop UI).
 - Gutter positions through verified edit/move chains and suppression after unknown edits; complete snapshot paging without splitting Unicode characters or CRLF pairs.
 - URL encoding of vault paths/prompts, including Unicode and Windows paths.
 
@@ -81,6 +83,8 @@ Native launching of the separate ChatGPT/Codex desktop app depends on that machi
 
 If a mutation reports finalization failure, do not repeat it blindly. Inspect **AI Changes** and run **Recover interrupted operations**. If recovery reports uncertainty, inspect the saved before/after states and resolve the filesystem state before retrying. Recovery never overwrites files.
 
-If plugin startup rejects `state.json`, preserve it and repair from a known backup; do not replace it with an empty object. If a lock remains from a crashed process, WikiShip fails closed and preserves it. Close other vault instances, verify that no process is using this journal, remove only `state.lock` from the WikiShip plugin folder, and reload the plugin. Automatic stale-lock removal is deliberately avoided because concurrent recovery attempts could remove a newly acquired lock. A foreign-host or otherwise unverifiable lock also fails closed. Never remove a lock while another vault instance is using it.
+During disable/re-enable in the same Obsidian renderer, startup waits for the previous WikiShip instance to finish accepted operations and release its own journal lock. This wait survives plugin module reloads and does not delay other vaults. Disabling a still-starting instance cancels further setup and waits for any in-flight lock acquisition before cleanup. This in-process wait is separate from the dead-owner recovery below.
+
+If plugin startup rejects `state.json`, preserve it and repair from a known backup; do not replace it with an empty object. After a process exits before asynchronous cleanup finishes, WikiShip automatically recovers a lock only when its record names this host and the OS reports that its PID no longer exists. A recovery guard serializes competing reclaimers; live PIDs (including possibly reused PIDs), foreign hosts, permission errors, corrupt records, and symlinks fail closed. Preserve unverifiable locks for inspection. Never delete a lock while another instance may be using it. Keep the journal and its locks local to one host; synchronization of plugin state is unsupported. Filesystems without the required exclusive hard-link/directory operations fail closed.
 
 The journal retains complete snapshots, including deleted content. There is no automatic pruning or journal sync merge in v1. A later retention/export feature should preserve recovery data until the user explicitly discards it.

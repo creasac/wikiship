@@ -65,14 +65,48 @@ describe('atomic journal persistence', () => {
     expect(await readFile(join(outside, 'state.json'), 'utf8')).toBe(original);
     await rm(data); await rename(data + '-original', data); await store.close();
   });
-  it('leaves stale locks untouched instead of racing another recovering instance', async () => {
+  it('recovers a confirmed dead local legacy owner under the recovery guard', async () => {
     const dir = await root(), data = join(dir, '.obsidian/plugins/wikiship');
     await mkdir(data, { recursive: true });
-    const stale = JSON.stringify({ pid: 2147483647, host: hostname(), token: 'stale-token' });
+    const stale = JSON.stringify({ pid: 2147483647, host: hostname(), token: '00000000-0000-4000-8000-000000000000' });
     await writeFile(join(data, 'state.lock'), stale);
     const kill = vi.spyOn(process, 'kill').mockImplementationOnce(() => { throw Object.assign(new Error('No such process'), { code: 'ESRCH' }); });
-    try { await expect(new AtomicStateStore(data, dir).open()).rejects.toThrow('stale WikiShip journal lock'); }
-    finally { kill.mockRestore(); }
-    expect(await readFile(join(data, 'state.lock'), 'utf8')).toBe(stale);
+    const store = new AtomicStateStore(data, dir);
+    try { await store.open(); } finally { kill.mockRestore(); }
+    expect(JSON.parse(await readFile(join(data, 'state.lock'), 'utf8')).pid).toBe(process.pid);
+    expect(await store.load()).toBeNull(); await store.close();
   });
+  it.each(['live', 'foreign', 'unverifiable', 'malformed'])('preserves a %s legacy owner record', async kind => {
+    const dir = await root(), data = join(dir, '.obsidian/plugins/wikiship'); await mkdir(data, { recursive: true });
+    const owner = JSON.stringify({ pid: kind === 'live' ? process.pid : 2147483647, host: kind === 'foreign' ? hostname() + '-foreign' : hostname(), token: '00000000-0000-4000-8000-000000000000' });
+    const record = kind === 'malformed' ? '{partial' : owner;
+    await writeFile(join(data, 'state.lock'), record);
+    const kill = kind === 'unverifiable' ? vi.spyOn(process, 'kill').mockImplementation(() => { throw Object.assign(new Error('Permission denied'), { code: 'EPERM' }); }) : undefined;
+    try { await expect(new AtomicStateStore(data, dir).open()).rejects.toThrow(); }
+    finally { kill?.mockRestore(); }
+    expect(await readFile(join(data, 'state.lock'), 'utf8')).toBe(record);
+    await expect(readFile(join(data, 'state.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+  it.each(['live', 'foreign', 'malformed'])('preserves a %s recovery guard', async kind => {
+    const dir = await root(), data = join(dir, '.obsidian/plugins/wikiship'), guard = join(data, 'state.lock.guard');
+    await mkdir(guard, { recursive: true });
+    const token = '00000000-0000-4000-8000-000000000000', path = join(guard, `owner-${token}.json`);
+    const record = kind === 'malformed' ? '{partial' : JSON.stringify({ pid: process.pid, host: kind === 'foreign' ? hostname() + '-foreign' : hostname(), token });
+    await writeFile(path, record);
+    await expect(new AtomicStateStore(data, dir).open()).rejects.toThrow();
+    expect(await readFile(path, 'utf8')).toBe(record);
+    await expect(readFile(join(data, 'state.lock'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+  it('rejects lock and guard symlinks without changing their targets', async () => {
+    const dir = await root(), outside = await root(), data = join(dir, '.obsidian/plugins/wikiship');
+    await mkdir(data, { recursive: true });
+    const target = join(outside, 'owner.json'); await writeFile(target, 'preserve');
+    await symlink(target, join(data, 'state.lock'));
+    await expect(new AtomicStateStore(data, dir).open()).rejects.toThrow('ownership');
+    expect(await readFile(target, 'utf8')).toBe('preserve'); await rm(join(data, 'state.lock'));
+    await symlink(outside, join(data, 'state.lock.guard'));
+    await expect(new AtomicStateStore(data, dir).open()).rejects.toThrow();
+    expect(await readFile(target, 'utf8')).toBe('preserve');
+  });
+
 });

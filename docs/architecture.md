@@ -18,7 +18,7 @@ Current heading positions come from the established Lezer Markdown parser becaus
 4. Recheck the file and its open editors. Use Obsidian `Vault.process`/`DataAdapter.process` for guarded text updates, and vault APIs for creation, deletion, and rename. Unsupported project extensions use the adapter when not indexed as `TFile`.
 5. Save `applied`, expose the record for review, and refresh the UI.
 
-The journal uses a temporary file, file fsync, atomic rename, and directory fsync where supported. A per-process lock rejects simultaneous journal writers. External changes to the saved state are detected before replacing it. Corrupt state prevents plugin startup and is preserved for repair. Snapshot bytes, sizes, encodings, and hashes are validated on load.
+The journal uses a temporary file, file fsync, atomic rename, and directory fsync where supported. A per-process lock rejects simultaneous journal writers. A populated `state.lock.guard` directory is published atomically before the backward-compatible `state.lock` file; recovery removes only a confirmed dead local owner’s uniquely named guard record. This serializes stale-file recovery, while delayed reclaimers cannot remove a replacement owner’s record. Owner records are fully written before publication. Live or unverifiable owners are never reclaimed. External changes to the saved state are detected before replacing it. Corrupt state prevents plugin startup and is preserved for repair. Snapshot bytes, sizes, encodings, and hashes are validated on load.
 
 Failure to persist an intent means no file mutation occurs. Failure to finalize a mutation blocks further writes until recovery reloads authoritative saved state. Recovery compares both sides of an interrupted operation; it never guesses from a watcher event. Ambiguous partial moves remain `uncertain`. A recorded direction distinguishes an interrupted forward operation from an interrupted revert.
 
@@ -44,7 +44,7 @@ This bridge controls tools exposed by that connection. A client with another con
 
 Files remain in the original vault/project. There is no import, proprietary document format, search index, cloud service, model provider, or sync layer. Default generated-directory exclusions apply only to WikiShip. Users edit these rules in WikiShip settings; Obsidian configuration is otherwise untouched.
 
-`<configDir>/plugins/wikiship/state.json` holds pins and the journal. `state.lock` is a local writer lock. Snapshot retention is unbounded in this initial version; review does not purge recovery data. Users should arrange their own backup and sync policies, avoiding simultaneous synchronization/writing of the journal. When state changes externally, WikiShip stops instead of silently merging it.
+`<configDir>/plugins/wikiship/state.json` holds pins and the journal. `state.lock` and `state.lock.guard` enforce the local writer lock; both are ownership metadata, not journal backups. Snapshot retention is unbounded in this initial version; review does not purge recovery data. Users should arrange their own backup and sync policies, avoiding simultaneous synchronization/writing of the journal. When state changes externally, WikiShip stops instead of silently merging it.
 
 ## Launch adapter
 

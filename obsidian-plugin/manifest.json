@@ -1,7 +1,7 @@
 {
   "id": "wikiship",
   "name": "WikiShip",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "minAppVersion": "1.13.1",
   "description": "Pin explicit context and review tracked changes from external AI agents.",
   "author": "WikiShip",

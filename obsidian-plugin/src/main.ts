@@ -3,6 +3,7 @@ import { getAPI, type LocalRestApiPublicApi } from 'obsidian-local-rest-api';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Journal } from './provenance/journal';
+import { trackJournalShutdown, waitForJournalShutdown } from './provenance/lifecycle';
 import { AtomicStateStore, DEFAULT_EXCLUSIONS, PathPolicy } from './provenance/storage';
 import { ObsidianFiles } from './provenance/obsidian-files';
 import { EditorContext } from './context/editor';
@@ -19,22 +20,29 @@ export default class WikiShip extends Plugin {
   private store?: AtomicStateStore;
   private api?: LocalRestApiPublicApi;
   private stopped = false;
+  private loading: Promise<void> = Promise.resolve();
   private root = '';
   private connection?: HTMLElement;
   settings: Settings = { exclusions: [...DEFAULT_EXCLUSIONS] };
 
-  async onload() {
+  onload() { return this.loading = this.start(); }
+  private async start() {
     try {
       const saved = await this.loadData() as Partial<Settings> | null;
       if (Array.isArray(saved?.exclusions) && saved.exclusions.every(e => typeof e === 'string' && e && !e.includes('/'))) this.settings.exclusions = saved.exclusions;
       const adapter = this.app.vault.adapter;
       if (!(adapter instanceof FileSystemAdapter)) throw new Error('WikiShip v1 requires a local desktop vault.');
       this.root = await realpath(adapter.getBasePath());
+      if (this.stopped) return;
       this.store = new AtomicStateStore(join(this.root, this.app.vault.configDir, 'plugins', this.manifest.id), this.root);
+      await waitForJournalShutdown(this.store.directory);
+      if (this.stopped) return;
       await this.store.open();
+      if (this.stopped) return;
       const files = new ObsidianFiles(this.app, new PathPolicy(this.root, this.app.vault.configDir, this.settings.exclusions));
       this.journal = new Journal(this.store, files);
       await this.journal.load();
+      if (this.stopped) return;
       this.context = new EditorContext(this.app, this.journal, path => files.readContext(path));
       this.register(() => this.context.dispose());
       this.registerView(CONTEXT_VIEW_TYPE, leaf => new ContextView(leaf, this.context, this.journal));
@@ -65,6 +73,7 @@ export default class WikiShip extends Plugin {
       });
     } catch (error) {
       new Notice(`WikiShip could not start: ${message(error)}`, 15000);
+      await this.journal?.close();
       await this.store?.close();
       throw error;
     }
@@ -134,11 +143,17 @@ export default class WikiShip extends Plugin {
     await this.app.workspace.revealLeaf(leaf);
   }
   onunload() {
+    if (this.stopped) return;
     this.stopped = true;
     this.api?.unregister(); this.api = undefined;
-    // Obsidian's unload hook is synchronous. Drain already accepted mutations
-    // before releasing the exclusive journal lock; new calls are rejected.
-    void (this.journal?.close() ?? Promise.resolve()).then(() => this.store?.close()).catch(error => console.error('WikiShip could not close its journal', error));
+    // Reject new mutations immediately. Also wait for any in-flight startup so
+    // it cannot acquire a lock after cleanup; start() cancels further setup.
+    const drained = this.journal?.close() ?? Promise.resolve();
+    const shutdown = this.loading.catch(() => undefined).then(() => drained).then(() => this.store?.close());
+    // Obsidian does not await this synchronous hook. Publish cleanup before it
+    // returns so a replacement instance waits before attempting the writer lock.
+    const pending = this.store ? trackJournalShutdown(this.store.directory, shutdown) : shutdown;
+    void pending.catch(error => console.error('WikiShip could not close its journal', error));
   }
 }
 function message(error: unknown) { return error instanceof Error ? error.message : String(error); }
