@@ -1,6 +1,6 @@
 # Architecture
 
-wikiship is a desktop Obsidian plugin. `src/context` reads the current editor selection, cursor, and section metadata; `src/provenance` owns state and mutations; `src/review` supplies native views and CodeMirror gutters; `src/mcp` registers tool definitions with Local REST API. The launch adapter lives in `src/integrations/chatgpt` and contains no model API calls.
+wikiship is a desktop Obsidian plugin. `src/context` reads the current editor selection, cursor, and section metadata; `src/provenance` owns state and mutations; `src/review` supplies native views and CodeMirror gutters; `src/mcp` registers tool definitions with Local REST API.
 
 ## Live editor context
 
@@ -45,7 +45,3 @@ This bridge controls tools exposed by that connection. A client with another con
 Files remain in the original vault/project. There is no import, proprietary document format, search index, cloud service, model provider, or sync layer. Default generated-directory exclusions apply only to wikiship. Users edit these rules in wikiship settings; Obsidian configuration is otherwise untouched.
 
 `<configDir>/plugins/wikiship/state.json` holds the journal. Existing version-1 `context` data and unknown top-level fields are preserved unchanged as opaque compatibility data across journal saves. Legacy pins are not resolved, updated on rename, or exposed through tools. New journals omit `context`. Operation and snapshot validation remains strict; legacy pin content cannot block a valid journal from loading. Retired basket panes restored from an older workspace are closed when the layout is ready. `state.lock` and `state.lock.guard` enforce the local writer lock; both are ownership metadata, not journal backups. Snapshot retention is unbounded in this initial version; review does not purge recovery data. Users should arrange their own backup and sync policies, avoiding simultaneous synchronization/writing of the journal. When state changes externally, wikiship stops instead of silently merging it.
-
-## Launch adapter
-
-The [official desktop deep-link reference](https://learn.chatgpt.com/docs/reference/commands#deep-links) documents `codex://threads/new?path=...&prompt=...`. Both values are encoded separately. The path is the vault root, and the prompt includes live selection/section guidance and tool names, with no API keys or copied note bodies. No published wikiship desktop-plugin identifier exists yet, so the adapter uses real tool references rather than inventing a `plugin://` mention. The composer remains unsent; other clients can use the copy-prompt command.

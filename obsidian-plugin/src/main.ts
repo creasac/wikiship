@@ -11,7 +11,6 @@ import { EditorContext } from './context/editor';
 import { ChangesView, ChangeModal, RevertFileModal, CHANGES_VIEW_TYPE, nextUnreviewed } from './review/views';
 import { createReviewExtension } from './review/gutter';
 import { registerTools } from './mcp/tools';
-import { codexDeepLink, handoffPrompt } from './integrations/chatgpt/launch';
 
 interface Settings { exclusions: string[]; }
 
@@ -22,7 +21,6 @@ export default class WikiShip extends Plugin {
   private api?: LocalRestApiPublicApi;
   private stopped = false;
   private loading: Promise<void> = Promise.resolve();
-  private root = '';
   private connection?: HTMLElement;
   settings: Settings = { exclusions: [...DEFAULT_EXCLUSIONS] };
 
@@ -33,14 +31,14 @@ export default class WikiShip extends Plugin {
       if (Array.isArray(saved?.exclusions) && saved.exclusions.every(e => typeof e === 'string' && e && !e.includes('/'))) this.settings.exclusions = saved.exclusions;
       const adapter = this.app.vault.adapter;
       if (!(adapter instanceof FileSystemAdapter)) throw new Error('wikiship v1 requires a local desktop vault.');
-      this.root = await realpath(adapter.getBasePath());
+      const root = await realpath(adapter.getBasePath());
       if (this.stopped) return;
-      this.store = new AtomicStateStore(join(this.root, this.app.vault.configDir, 'plugins', this.manifest.id), this.root);
+      this.store = new AtomicStateStore(join(root, this.app.vault.configDir, 'plugins', this.manifest.id), root);
       await waitForJournalShutdown(this.store.directory);
       if (this.stopped) return;
       await this.store.open();
       if (this.stopped) return;
-      const files = new ObsidianFiles(this.app, new PathPolicy(this.root, this.app.vault.configDir, this.settings.exclusions));
+      const files = new ObsidianFiles(this.app, new PathPolicy(root, this.app.vault.configDir, this.settings.exclusions));
       this.journal = new Journal(this.store, files);
       await this.journal.load();
       if (this.stopped) return;
@@ -83,17 +81,6 @@ export default class WikiShip extends Plugin {
     }) });
     this.addCommand({ id: 'recover', name: 'Recover interrupted operations', callback: () => this.run(() => this.journal.recover()) });
     this.addCommand({ id: 'reconnect-mcp', name: 'Reconnect Local REST API', callback: () => this.connectMcp() });
-    this.addCommand({ id: 'ask-chatgpt', name: 'Ask ChatGPT / Open in Codex', callback: () => this.run(() => this.launch()) });
-    this.addCommand({ id: 'copy-prompt', name: 'Copy agent handoff prompt', callback: () => this.run(async () => {
-      await navigator.clipboard.writeText(handoffPrompt(this.launchContext()));
-      new Notice('wikiship handoff prompt copied.');
-    }) });
-  }
-  private launchContext() { return { path: this.root, vaultName: this.app.vault.getName() }; }
-  private async launch() {
-    const url = codexDeepLink(this.launchContext());
-    const { shell } = require('electron') as { shell: { openExternal(url: string): Promise<void> } };
-    await shell.openExternal(url);
   }
   private connectMcp() {
     if (this.stopped || !this.journal) return;

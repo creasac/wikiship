@@ -27,9 +27,17 @@ Enable **wikiship** and **Local REST API with MCP** under Community plugins. wik
 2. If needed, the agent reads a bounded saved-file excerpt with `wikiship_get_file_state`. Section metadata contains offsets and heading paths, not the section body. If disk and editor hashes differ, save or resolve that difference before editing.
 3. Let the agent edit using a `wikiship_*` mutation tool. The edit appears immediately; a subtle gutter marker and the **AI Changes** sidebar identify the unreviewed operation.
 4. Click the marker or sidebar change to inspect its diff. **Mark reviewed** dismisses its marker; **Revert this change** remains available afterward. Revert refuses newer file or editor content.
-5. **Ask ChatGPT / Open in Codex** opens a new desktop composer with the vault path and live-context instructions. Press Enter to send. **Copy agent handoff prompt** is available for existing conversations or an unregistered URL handler.
 
-The ribbon opens **AI Changes**. Commands also navigate unreviewed changes, mark changes reviewed, revert a file's changes, reconnect the host, and recover interrupted operations.
+Start your conversation in your configured MCP client. See the [client setup and tool guide](docs/mcp-tools.md) for connection and safe-edit instructions.
+
+The ribbon opens **AI Changes**. The command palette contains exactly these six wikiship commands:
+
+- **Show AI Changes**
+- **Next unreviewed AI change**
+- **Mark all AI changes reviewed**
+- **Revert all AI changes in current file**
+- **Recover interrupted operations**
+- **Reconnect Local REST API**
 
 Persistent pinning and its basket sidebar have been removed. Existing pin data in `state.json` is preserved as opaque legacy data; it is not read as context, refreshed, or deleted. The old basket MCP tools are removed, including `wikiship_get_context`; that name does not acquire a new meaning. See [client migration](docs/mcp-tools.md#removal-of-persistent-pins).
 

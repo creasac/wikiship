@@ -53,6 +53,22 @@ async function blockedMutation(plugin: WikiShip) {
 }
 
 describe('plugin journal lifecycle', () => {
+  it('registers exactly the six supported review, recovery and connection commands', async () => {
+    const { directory, plugin } = await fixture(), instance = plugin();
+    const commands = vi.spyOn(instance, 'addCommand');
+    await instance.onload();
+    try {
+      expect(commands.mock.calls.map(([command]) => ({ id: command.id, name: command.name }))).toEqual([
+        { id: 'open-changes', name: 'Show AI Changes' },
+        { id: 'next-change', name: 'Next unreviewed AI change' },
+        { id: 'mark-all-reviewed', name: 'Mark all AI changes reviewed' },
+        { id: 'revert-file', name: 'Revert all AI changes in current file' },
+        { id: 'recover', name: 'Recover interrupted operations' },
+        { id: 'reconnect-mcp', name: 'Reconnect Local REST API' },
+      ]);
+    } finally { instance.onunload(); await waitForJournalShutdown(directory); }
+  });
+
   it('retires restored basket panes without altering legacy data or other panes', async () => {
     const { root, directory, plugin } = await fixture();
     const legacy = { version: 1 as const, context: [{ id: 'retained', snapshot: 'legacy data' }], operations: [] };

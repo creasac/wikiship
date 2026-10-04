@@ -159,7 +159,7 @@ try {
   assert.equal(section.fileHash, editorState.fileHash);
   assert.equal(section.content, '## Storage\nUse ordinary local files.\n\n');
   const commands = await page.evaluate(() => Object.keys(app.commands.commands).filter(id => id.startsWith('wikiship:')));
-  for (const id of ['open-context', 'add-selection', 'add-section', 'add-note', 'remove-context', 'clear-context']) assert.ok(!commands.includes(`wikiship:${id}`));
+  assert.deepEqual(commands.sort(), ['open-changes', 'next-change', 'mark-all-reviewed', 'revert-file', 'recover', 'reconnect-mcp'].map(id => `wikiship:${id}`).sort());
   for (const name of removedTools) {
     assert.ok(!listed.tools.some(tool => tool.name === name));
     assert.equal((await client.callTool({ name, arguments: {} })).isError, true);
@@ -167,7 +167,7 @@ try {
   assert.equal(await page.locator('.wikiship-context-item').count(), 0);
   assert.equal(await page.evaluate(() => app.workspace.getLeavesOfType('wikiship-context').length), 0);
   assert.deepEqual((await state()).context, legacyContext);
-  passed('Live selection and cursor section follow the active note; pin commands, tools and basket are absent; legacy data is preserved');
+  passed('Live selection and cursor section follow the active note; only six approved commands remain; pin tools and basket are absent; legacy data is preserved');
 
   const edited = await call('wikiship_patch_section', { path: 'B.md', expectedHash: section.fileHash,
     headingPath: ['Architecture', 'Storage'], content: '## Storage\nAI writes are recorded and reviewable.\n\n', agent: 'native-smoke', session: 'isolated-vault' });
@@ -280,32 +280,6 @@ try {
   assert.equal(JSON.parse(bridgeContext.content.find(block => block.type === 'text').text).activeFile, 'B.md');
   for (const name of ['command_execute', 'open_file', ...removedTools]) assert.equal((await bridgeClient.callTool({ name, arguments: {} })).isError, true);
   passed('Actual stdio bridge process lists 19 approved tools, reads live context, and refuses removed tools and command/open-file bypasses');
-
-  // Verify native command dispatch without opening or sending a real chat.
-  // The temporary interception is confined to this disposable Electron process.
-  await page.evaluate(() => {
-    const shell = require('electron').shell;
-    globalThis.__wikishipSmokeOriginalOpenExternal = shell.openExternal;
-    globalThis.__wikishipSmokeLaunches = [];
-    shell.openExternal = async url => { globalThis.__wikishipSmokeLaunches.push(url); };
-  });
-  let launch;
-  try {
-    await command('ask-chatgpt');
-    await page.waitForFunction(() => globalThis.__wikishipSmokeLaunches.length === 1);
-    launch = await page.evaluate(() => globalThis.__wikishipSmokeLaunches[0]);
-  } finally {
-    await page.evaluate(() => { require('electron').shell.openExternal = globalThis.__wikishipSmokeOriginalOpenExternal; });
-  }
-  const launchUrl = new URL(launch);
-  assert.equal(launchUrl.protocol, 'codex:');
-  assert.equal(launchUrl.host, 'threads'); assert.equal(launchUrl.pathname, '/new');
-  assert.deepEqual([...launchUrl.searchParams.keys()].sort(), ['path', 'prompt']);
-  assert.equal(launchUrl.searchParams.get('path'), vault);
-  assert.match(launchUrl.searchParams.get('prompt'), /wikiship_get_editor_state/);
-  assert.match(launchUrl.searchParams.get('prompt'), /current nonempty selection/);
-  assert.doesNotMatch(launchUrl.searchParams.get('prompt'), /pin|wikiship_get_context/i);
-  passed('Native Ask ChatGPT command dispatches the correct Codex URL with fixture workspace and live-context instructions');
 
   const versions = await page.evaluate(() => ({ obsidianRelease: '1.13.7', electron: process.versions.electron, wikiShip: app.plugins.plugins.wikiship.manifest.version, localRestApi: app.plugins.plugins['obsidian-local-rest-api'].manifest.version }));
   await json(join(output, 'obsidian-acceptance.json'), { ok: true, versions, checks, pageErrors, fixture: root });
