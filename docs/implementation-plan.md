@@ -1,4 +1,4 @@
-# wikiship v1 implementation plan
+# wikiship implementation scope
 
 ## Findings (2026-10-01)
 
@@ -9,9 +9,9 @@ The supplied workspace was empty. Its `.git` mount initially had no repository m
 - The public extension interface does not remove/filter the host's mutation tools. Shared-endpoint use is cooperative; a thin, allowlisted stdio bridge is required to prevent an agent connected through that bridge from invoking unjournaled host writes. It forwards to the same server, without another network listener.
 - Codex launch URL parameters require verification against current documentation/source. Keep the adapter isolated and provide a copy-prompt fallback if platform support is unavailable. Never simulate typing or submission.
 
-## Milestones
+## Current milestones
 
-1. Plugin skeleton and context basket: persisted note/section/selection references; live editor state; stale detection; native commands and context menus.
+1. Plugin skeleton and live context: current editor selection/cursor/file, section metadata, source-aware link resolution, and guarded editor targets. Persistent pins and their sidebar, commands, menus, and APIs are removed; legacy saved data is preserved opaquely.
 2. MCP extension: validated tool schemas, version/load handling, authenticated host transport, allowlisted client adapter, real MCP SDK client verification.
 3. Provenance: serialized operations; durable intent before mutation; before/after snapshots and hashes; guarded create/edit/delete/move; restart recovery and explicit uncertain states.
 4. Review: sidebar, before/after diff, review state, conservative revert and file-wide revert; subtle interactive CodeMirror gutter markers. Never write markers into notes.
@@ -19,11 +19,11 @@ The supplied workspace was empty. Its `.git` mount initially had no repository m
 
 ## Safety decisions
 
-- Only calls through wikiship mutation tools receive AI attribution. Watcher events only refresh references/UI.
+- Only calls through wikiship mutation tools receive AI attribution. Watcher events are not a source of attribution.
 - Require expected file SHA-256 for edits/deletes/moves; create must assert absence. Never overwrite a destination.
 - For v1, reverting an edit requires the entire file to match the recorded after hash. This may refuse unrelated later human edits, but preserves all newer work.
 - Persist full snapshots locally in plugin data; do not prune unreviewed or recoverable records automatically. Fail closed if journal persistence fails.
-- Keep selections anchored by original offsets plus surrounding text/hash; ambiguous or modified selections are stale. Resolve sections by unique heading path and invalidate ambiguous headings.
+- Capture current selection offsets, editor contents, and hashes; recheck them before writing. Locate sections by unique heading paths and refuse ambiguous headings.
 - Block traversal, symlinks, vault configuration/internal paths, and noisy generated directories through wikiship only. Do not edit the user's Obsidian configuration.
 
 ## Research sources

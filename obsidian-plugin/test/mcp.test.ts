@@ -7,7 +7,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { createToolDefinitions, type EditorTarget, type WikiShipContext } from '../src/mcp/tools';
 import { Journal } from '../src/provenance/journal';
-import { headingRanges, pin, resolve, sameHeading } from '../src/context/references';
+import { headingRanges, sameHeading } from '../src/context/references';
 import { hash, textSnapshot, type Operation, type Snapshot, type State, type StateStore, type WorkspaceFiles } from '../src/model';
 
 class MemoryStore implements StateStore {
@@ -39,7 +39,7 @@ function headings(text: string) {
 }
 class Context implements WikiShipContext {
   active = 'A.md'; from = 0; to = 5;
-  constructor(private journal: Journal, private files: MemoryFiles) {}
+  constructor(private files: MemoryFiles) {}
   private text(path = this.active) { const file = this.files.values.get(path); if (!file) throw new Error('Missing file.'); return file.data; }
   async selectionTarget(): Promise<EditorTarget> { return { path: this.active, from: this.from, to: this.to, fileHash: hash(this.text()) }; }
   async cursorTarget() { return { ...await this.selectionTarget(), from: this.to, to: this.to }; }
@@ -50,11 +50,10 @@ class Context implements WikiShipContext {
   }
   async getEditorState() { return { activeFile: this.active, selection: await this.selectionTarget() }; }
   async getSelection() { return { ...await this.selectionTarget(), content: this.text().slice(this.from, this.to) }; }
-  async getContext() { return this.journal.state.context.map(item => resolve(item, this.text(item.path), headings(this.text(item.path)))); }
-  async addSelection() { return this.journal.addContext(pin('selection', this.active, this.text(), this.from, this.to)); }
-  async addSection() { const target = await this.sectionTarget(); return this.journal.addContext(pin('section', this.active, this.text(), target.from, target.to, ['Architecture', 'Storage'])); }
-  async addNote(path = this.active) { return this.journal.addContext(pin('note', path, this.text(path))); }
+
 }
+
+const REMOVED_PIN_TOOLS = ['wikiship_get_context', 'wikiship_context_add_selection', 'wikiship_context_add_section', 'wikiship_context_add_note', 'wikiship_context_remove', 'wikiship_context_clear'];
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => { await Promise.allSettled(closers.splice(0).map(close => close())); });
@@ -64,7 +63,7 @@ async function fixture() {
   files.values.set('A.md', textSnapshot('First paragraph.\n\nSecond paragraph.\n'));
   files.values.set('B.md', textSnapshot('# Architecture\n\n## Storage\nOriginal design.\n\n## API\nPreserve this.\n'));
   await journal.load();
-  const context = new Context(journal, files);
+  const context = new Context(files);
   const definitions = createToolDefinitions(context, journal);
   const server = new McpServer({ name: 'local-rest-api-fixture', version: '5.3.0' });
   for (const definition of definitions) {
@@ -88,23 +87,25 @@ function data(result: Awaited<ReturnType<Client['callTool']>>): Record<string, u
 }
 
 describe('wikiship through a real MCP SDK client', () => {
-  it('lists schemas, pins across files, reads current context, and journals a section edit', async () => {
+  it('lists live tools, reads the current selection, and journals a section edit', async () => {
     const { client, context, journal, store, files } = await fixture();
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(18);
+    expect(list.tools).toHaveLength(12);
     const replacement = list.tools.find(tool => tool.name === 'wikiship_replace_range')!;
     expect(replacement.inputSchema.required).toContain('expectedHash');
     expect(replacement.annotations?.destructiveHint).toBe(true);
     expect(list.tools.some(tool => /revert|review/.test(tool.name))).toBe(false);
 
     context.to = files.values.get('A.md')!.data.length;
-    data(await client.callTool({ name: 'wikiship_context_add_selection', arguments: {} }));
+    const selected = data(await client.callTool({ name: 'wikiship_get_selection', arguments: {} }));
+    expect(selected.content).toContain('Second paragraph.');
     context.active = 'B.md';
-    data(await client.callTool({ name: 'wikiship_context_add_section', arguments: {} }));
-    const pinned = data(await client.callTool({ name: 'wikiship_get_context', arguments: {} })) as unknown as { path: string; content: string; status: string }[];
-    expect(pinned.map(item => item.path)).toEqual(['A.md', 'B.md']);
-    expect(pinned[0]!.content).toContain('Second paragraph.');
-    expect(pinned[1]!.content).toBe('## Storage\nOriginal design.\n\n');
+    expect(data(await client.callTool({ name: 'wikiship_get_editor_state', arguments: {} })).activeFile).toBe('B.md');
+    for (const name of REMOVED_PIN_TOOLS) {
+      expect(list.tools.some(tool => tool.name === name)).toBe(false);
+      expect((await client.callTool({ name, arguments: {} })).isError).toBe(true);
+    }
+    expect(journal.state.operations).toEqual([]);
 
     const state = data(await client.callTool({ name: 'wikiship_get_file_state', arguments: { path: 'B.md' } }));
     const operation = data(await client.callTool({ name: 'wikiship_patch_section', arguments: {
@@ -118,8 +119,6 @@ describe('wikiship through a real MCP SDK client', () => {
     expect(store.saved!.operations[0]!.agent).toBe('test-client');
     expect(store.saved!.operations[0]!.review).toBe('unreviewed');
 
-    const updated = data(await client.callTool({ name: 'wikiship_get_context', arguments: {} })) as unknown as { status: string }[];
-    expect(updated[1]!.status).toBe('changed');
     const changes = data(await client.callTool({ name: 'wikiship_get_changes', arguments: { limit: 1 } }));
     expect(JSON.stringify(changes)).not.toContain('Original design.');
     await journal.revert(String(operation.id));
@@ -219,12 +218,13 @@ describe('tools-only stdio bridge policy', () => {
   it('forwards allowed MCP calls and refuses host writes, arbitrary commands, and prefix lookalikes', async () => {
     const { client: upstream, server: host, journal } = await fixture();
     let bypassCalls = 0;
-    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikiship_raw_write']) {
+    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikiship_raw_write', ...REMOVED_PIN_TOOLS]) {
       host.registerTool(name, { inputSchema: { path: z.string().optional() } }, async () => {
         bypassCalls++; return { content: [{ type: 'text', text: 'Bypassed' }] };
       });
     }
     const { createBridge, ALLOWED_TOOLS } = await bridgeModule();
+    expect(ALLOWED_TOOLS).toHaveLength(19);
     const readTools = ALLOWED_TOOLS.filter(name => !name.startsWith('wikiship_'));
     for (const name of readTools) host.registerTool(name, { inputSchema: {} }, async () => ({ content: [{ type: 'text', text: JSON.stringify({ read: name }) }] }));
     const bridge = createBridge(upstream), client = new Client({ name: 'external-agent', version: '1' });
@@ -233,7 +233,7 @@ describe('tools-only stdio bridge policy', () => {
     closers.push(() => client.close(), () => bridge.close());
     const list = await client.listTools();
     expect(list.tools.map(tool => tool.name).sort()).toEqual([...ALLOWED_TOOLS].sort());
-    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikiship_raw_write']) {
+    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikiship_raw_write', ...REMOVED_PIN_TOOLS]) {
       expect((await client.callTool({ name, arguments: { path: 'A.md' } })).isError).toBe(true);
     }
     expect(bypassCalls).toBe(0);

@@ -41,21 +41,6 @@ export function isTextBoundary(text: string, offset: number): boolean {
   return !(offset > 0 && offset < text.length && /[\uD800-\uDBFF]/.test(text[offset - 1]!) && /[\uDC00-\uDFFF]/.test(text[offset]!));
 }
 
-const headingSchema = z.array(z.string());
-export const contextSchema = z.object({
-  id: z.string().min(1), kind: z.enum(['note', 'section', 'selection']), path: z.string().min(1),
-  pinnedAt: z.string(), fileHash: digest, contentHash: digest, snapshot: z.string(),
-  from: z.number().int().nonnegative(), to: z.number().int().nonnegative(),
-  prefix: z.string().max(64), suffix: z.string().max(64), headingPath: headingSchema.optional(),
-}).superRefine((item, context) => {
-  if (Buffer.byteLength(item.snapshot) > MAX_FILE_BYTES || item.to - item.from !== item.snapshot.length || hash(item.snapshot) !== item.contentHash ||
-      (item.kind === 'selection' && item.from === item.to) ||
-      (item.kind === 'section' && !item.headingPath?.length) ||
-      (item.kind === 'note' && (item.from !== 0 || item.fileHash !== item.contentHash))) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Context reference is invalid or exceeds the 5 MiB limit.' });
-  }
-});
-export type ContextItem = z.infer<typeof contextSchema>;
 export const operationSchema = z.object({
   id: z.string().min(1), timestamp: z.string(), kind: z.enum(['edit', 'create', 'delete', 'move']),
   path: z.string().min(1), target: z.string().min(1).optional(), before: snapshotSchema.nullable(), after: snapshotSchema.nullable(),
@@ -76,14 +61,16 @@ export const operationSchema = z.object({
 });
 export type Operation = z.infer<typeof operationSchema>;
 export const stateSchema = z.object({
-  version: z.literal(1), context: z.array(contextSchema), operations: z.array(operationSchema),
-}).superRefine((state, context) => {
-  if (new Set(state.context.map(item => item.id)).size !== state.context.length || new Set(state.operations.map(op => op.id)).size !== state.operations.length) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Journal and context IDs must be unique.' });
+  version: z.literal(1), operations: z.array(operationSchema),
+  // Legacy pins are opaque compatibility data: preserve them without reading or updating them.
+  context: z.unknown().optional(),
+}).passthrough().superRefine((state, context) => {
+  if (new Set(state.operations.map(op => op.id)).size !== state.operations.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Journal operation IDs must be unique.' });
   }
 });
 export type State = z.infer<typeof stateSchema>;
-export const emptyState = (): State => ({ version: 1, context: [], operations: [] });
+export const emptyState = (): State => ({ version: 1, operations: [] });
 export interface StateStore { load(): Promise<unknown | null>; save(state: State): Promise<void>; }
 export interface WorkspaceFiles {
   read(path: string): Promise<Snapshot | null>;

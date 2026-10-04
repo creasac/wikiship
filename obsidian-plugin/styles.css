@@ -6,15 +6,12 @@
 .wikiship-muted { color: var(--text-muted); font-size: var(--font-ui-small); }
 .wikiship-path { overflow-wrap: anywhere; }
 .wikiship-file-group { border-top: 1px solid var(--background-modifier-border); padding: var(--size-4-3) 0; }
-.wikiship-context-item, .wikiship-change-item { padding: var(--size-4-2) 0; }
+.wikiship-change-item { padding: var(--size-4-2) 0; }
 .wikiship-text-button { background: transparent !important; box-shadow: none !important; border: none; padding: 0; height: auto; text-align: left; white-space: normal; overflow-wrap: anywhere; color: var(--text-normal); }
 .wikiship-text-button:hover { color: var(--text-accent); text-decoration: underline; }
 .wikiship-text-button:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 3px; }
-.wikiship-context-preview { color: var(--text-muted); font-size: var(--font-ui-small); margin: var(--size-4-1) 0; overflow-wrap: anywhere; }
 .wikiship-status { display: inline-block; margin-left: var(--size-4-2); font-size: var(--font-ui-smaller); color: var(--text-muted); }
-.wikiship-status-stale, .wikiship-status-uncertain, .wikiship-warning { color: var(--text-warning); }
-.wikiship-status-changed { color: var(--text-accent); }
-.wikiship-clear { margin-top: var(--size-4-3); }
+.wikiship-status-uncertain, .wikiship-warning { color: var(--text-warning); }
 .wikiship-change-time { margin-top: var(--size-4-1); }
 .wikiship-history { margin-top: var(--size-4-2); }
 .wikiship-history summary, .wikiship-snapshots summary { cursor: pointer; font-size: var(--font-ui-small); color: var(--text-muted); }

@@ -22,6 +22,8 @@ const profile = join(root, 'profile'), vault = join(root, 'vault');
 const output = join(repository, 'artifacts');
 const token = randomBytes(32).toString('hex');
 const port = Number(process.env.WIKISHIP_SMOKE_PORT ?? 29123);
+const legacyContext = [{ id: 'legacy-fixture', kind: 'note', path: 'missing.md', snapshot: 'preserved legacy fixture' }];
+const removedTools = ['wikiship_get_context', 'wikiship_context_add_selection', 'wikiship_context_add_section', 'wikiship_context_add_note', 'wikiship_context_remove', 'wikiship_context_clear'];
 const checks = [];
 const pageErrors = [];
 let electron, browser, page, client, bridgeClient;
@@ -102,6 +104,7 @@ try {
   for (const file of ['main.js', 'manifest.json', 'styles.css']) await copyFile(join(repository, 'obsidian-plugin', file), join(vault, '.obsidian', 'plugins', 'wikiship', file));
   await copyFile(join(downloads, 'rest-main.js'), join(vault, '.obsidian', 'plugins', 'obsidian-local-rest-api', 'main.js'));
   await copyFile(join(downloads, 'rest-manifest.json'), join(vault, '.obsidian', 'plugins', 'obsidian-local-rest-api', 'manifest.json'));
+  await json(join(vault, '.obsidian', 'plugins', 'wikiship', 'state.json'), { version: 1, context: legacyContext, operations: [] });
   await writeFile(join(vault, 'A.md'), noteA); await writeFile(join(vault, 'B.md'), noteB);
   await writeFile(join(vault, 'large-review.md'), largeNote);
   await writeFile(join(vault, 'src', 'answer.ts'), 'export const answer = 41;\n');
@@ -137,28 +140,36 @@ try {
   await waitFor(async () => { try { const r = await fetch(`http://127.0.0.1:${port}/`); return r.ok; } catch { return false; } }, 'local MCP listener', 30_000);
   client = await connect();
   const listed = await client.listTools();
-  assert.equal(listed.tools.filter(tool => tool.name.startsWith('wikiship_')).length, 18);
-  passed('Native Obsidian loads wikiship and registers 18 tools on the real host');
+  assert.equal(listed.tools.filter(tool => tool.name.startsWith('wikiship_')).length, 12);
+  passed('Native Obsidian loads wikiship and registers 12 tools on the real host');
 
   await openNote('A.md');
   await page.evaluate(() => {
     const editor = app.workspace.activeEditor.editor, text = editor.getValue();
     editor.setSelection(editor.offsetToPos(text.indexOf('First paragraph')), editor.offsetToPos(text.indexOf('\n\nUnselected')));
   });
-  await command('add-selection');
-  await waitFor(async () => (await state()).context.length === 1, 'selection pinned');
+  const selection = await call('wikiship_get_selection');
+  assert.equal(selection.path, 'A.md');
+  assert.equal(selection.content, 'First paragraph selected for the agent.\n\nSecond paragraph selected for the agent.');
   await openNote('B.md', 'Use ordinary');
-  await command('add-section');
-  await waitFor(async () => (await state()).context.length === 2, 'section pinned');
-  const context = await call('wikiship_get_context');
-  assert.deepEqual(context.map(item => item.path), ['A.md', 'B.md']);
-  assert.equal(context[0].content, 'First paragraph selected for the agent.\n\nSecond paragraph selected for the agent.');
-  assert.equal(context[1].content, '## Storage\nUse ordinary local files.\n\n');
-  await page.locator('.wikiship-context-item').nth(1).waitFor();
-  passed('Human commands pin two paragraphs and a second-note section; real MCP returns exact current context');
+  const editorState = await call('wikiship_get_editor_state');
+  assert.equal(editorState.activeFile, 'B.md');
+  assert.deepEqual(editorState.section.path, ['Architecture', 'Storage']);
+  const section = await call('wikiship_get_file_state', { path: 'B.md', from: editorState.section.from, length: editorState.section.to - editorState.section.from });
+  assert.equal(section.fileHash, editorState.fileHash);
+  assert.equal(section.content, '## Storage\nUse ordinary local files.\n\n');
+  const commands = await page.evaluate(() => Object.keys(app.commands.commands).filter(id => id.startsWith('wikiship:')));
+  for (const id of ['open-context', 'add-selection', 'add-section', 'add-note', 'remove-context', 'clear-context']) assert.ok(!commands.includes(`wikiship:${id}`));
+  for (const name of removedTools) {
+    assert.ok(!listed.tools.some(tool => tool.name === name));
+    assert.equal((await client.callTool({ name, arguments: {} })).isError, true);
+  }
+  assert.equal(await page.locator('.wikiship-context-item').count(), 0);
+  assert.equal(await page.evaluate(() => app.workspace.getLeavesOfType('wikiship-context').length), 0);
+  assert.deepEqual((await state()).context, legacyContext);
+  passed('Live selection and cursor section follow the active note; pin commands, tools and basket are absent; legacy data is preserved');
 
-  await openNote('B.md', 'Use ordinary');
-  const edited = await call('wikiship_patch_section', { path: 'B.md', expectedHash: context[1].fileHash,
+  const edited = await call('wikiship_patch_section', { path: 'B.md', expectedHash: section.fileHash,
     headingPath: ['Architecture', 'Storage'], content: '## Storage\nAI writes are recorded and reviewable.\n\n', agent: 'native-smoke', session: 'isolated-vault' });
   await page.waitForFunction(() => app.workspace.activeEditor?.editor.getValue().includes('AI writes are recorded'));
   await page.locator('.wikiship-gutter-marker').first().waitFor();
@@ -236,6 +247,7 @@ try {
   await page.keyboard.press('Escape');
   passed('Large snapshot last pages expose exact literal before/after EOF changes and safely revert');
 
+  await openNote('B.md');
   const beforeReload = await state();
   await page.evaluate(async () => {
     await app.plugins.disablePlugin('wikiship');
@@ -245,29 +257,29 @@ try {
   await page.evaluate(async () => { await app.plugins.enablePlugin('wikiship'); });
   await page.waitForFunction(() => !!app.plugins.plugins.wikiship?.journal);
   await waitFor(async () => (await state()).operations.length === beforeReload.operations.length, 'persisted journal after reload');
-  assert.equal((await state()).context.length, 2);
-  const afterReload = await call('wikiship_get_context');
-  assert.equal(afterReload.length, 2);
-  passed('Plugin reload preserves context and operation history and re-registers live MCP tools');
+  assert.deepEqual((await state()).context, legacyContext);
+  assert.deepEqual((await state()).operations, beforeReload.operations);
+  assert.equal((await call('wikiship_get_editor_state')).activeFile, 'B.md');
+  passed('Plugin reload preserves legacy data and operation history and re-registers live MCP tools');
 
   await client.close(); client = undefined;
   await page.evaluate(async () => { await app.plugins.disablePlugin('obsidian-local-rest-api'); await app.plugins.enablePlugin('obsidian-local-rest-api'); });
   await waitFor(async () => { try { const r = await fetch(`http://127.0.0.1:${port}/`); return r.ok; } catch { return false; } }, 'reloaded host listener');
   client = await connect();
-  assert.equal((await client.listTools()).tools.filter(tool => tool.name.startsWith('wikiship_')).length, 18);
-  assert.equal((await call('wikiship_get_context')).length, 2);
+  assert.equal((await client.listTools()).tools.filter(tool => tool.name.startsWith('wikiship_')).length, 12);
+  assert.equal((await call('wikiship_get_editor_state')).activeFile, 'B.md');
   passed('Host plugin reload reconnects wikiship registration on the same MCP endpoint');
 
   bridgeClient = new Client({ name: 'wikiship-native-stdio-acceptance', version: '1.0.0' });
   await bridgeClient.connect(new StdioClientTransport({ command: process.execPath,
     args: [join(repository, 'adapters', 'stdio-bridge.mjs')],
     env: { WIKISHIP_MCP_URL: `http://127.0.0.1:${port}/mcp/`, WIKISHIP_API_KEY: token }, stderr: 'pipe' }));
-  assert.equal((await bridgeClient.listTools()).tools.length, 25);
-  const bridgeContext = await bridgeClient.callTool({ name: 'wikiship_get_context' });
+  assert.equal((await bridgeClient.listTools()).tools.length, 19);
+  const bridgeContext = await bridgeClient.callTool({ name: 'wikiship_get_editor_state' });
   assert.ok(!bridgeContext.isError);
-  assert.equal(JSON.parse(bridgeContext.content.find(block => block.type === 'text').text).length, 2);
-  for (const name of ['command_execute', 'open_file']) assert.equal((await bridgeClient.callTool({ name, arguments: {} })).isError, true);
-  passed('Actual stdio bridge process lists 25 approved tools, reads context, and refuses command/open-file bypasses');
+  assert.equal(JSON.parse(bridgeContext.content.find(block => block.type === 'text').text).activeFile, 'B.md');
+  for (const name of ['command_execute', 'open_file', ...removedTools]) assert.equal((await bridgeClient.callTool({ name, arguments: {} })).isError, true);
+  passed('Actual stdio bridge process lists 19 approved tools, reads live context, and refuses removed tools and command/open-file bypasses');
 
   // Verify native command dispatch without opening or sending a real chat.
   // The temporary interception is confined to this disposable Electron process.
@@ -290,9 +302,10 @@ try {
   assert.equal(launchUrl.host, 'threads'); assert.equal(launchUrl.pathname, '/new');
   assert.deepEqual([...launchUrl.searchParams.keys()].sort(), ['path', 'prompt']);
   assert.equal(launchUrl.searchParams.get('path'), vault);
-  for (const item of (await state()).context) assert.ok(launchUrl.searchParams.get('prompt').includes(item.id));
-  assert.match(launchUrl.searchParams.get('prompt'), /wikiship_get_context/);
-  passed('Native Ask ChatGPT command dispatches the correct Codex URL with fixture workspace and current context IDs');
+  assert.match(launchUrl.searchParams.get('prompt'), /wikiship_get_editor_state/);
+  assert.match(launchUrl.searchParams.get('prompt'), /current nonempty selection/);
+  assert.doesNotMatch(launchUrl.searchParams.get('prompt'), /pin|wikiship_get_context/i);
+  passed('Native Ask ChatGPT command dispatches the correct Codex URL with fixture workspace and live-context instructions');
 
   const versions = await page.evaluate(() => ({ obsidianRelease: '1.13.7', electron: process.versions.electron, wikiShip: app.plugins.plugins.wikiship.manifest.version, localRestApi: app.plugins.plugins['obsidian-local-rest-api'].manifest.version }));
   await json(join(output, 'obsidian-acceptance.json'), { ok: true, versions, checks, pageErrors, fixture: root });

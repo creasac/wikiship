@@ -17,7 +17,6 @@ beforeAll(async () => {
     import { AtomicStateStore } from './provenance/storage';
     import { Journal } from './provenance/journal';
     import { emptyState, id, textSnapshot } from './model';
-    import { pin } from './context/references';
     const [root, mode] = process.argv.slice(2), directory = root + '/.obsidian/plugins/wikiship';
     const send = message => new Promise(resolve => process.send(message, resolve));
     let store, journal, resume;
@@ -56,8 +55,9 @@ beforeAll(async () => {
           await send({ opened: true, pid: process.pid }); return;
         }
         store = new AtomicStateStore(directory, root); await store.open();
+        // Seed legacy compatibility data directly; no pin API remains.
+        if (mode === 'seed' || mode === 'pending') await store.save({ ...emptyState(), context: [{ snapshot: 'synthetic saved pin' }] });
         journal = new Journal(store, files); await journal.load();
-        if (mode === 'seed' || mode === 'pending') await journal.addContext(pin('note', 'synthetic.md', 'synthetic saved pin'));
         await send({ opened: true, pid: process.pid, state: journal.state });
         if (mode === 'pending') await journal.mutate({ kind: 'create', path: 'synthetic.md', content: 'synthetic written text' });
       } catch (error) { await send({ opened: false, error: String(error) }); process.exit(2); }
@@ -86,7 +86,7 @@ async function root() { const path = await mkdtemp(join(tmpdir(), 'wikiship-proc
 async function lock(path: string) { return readFile(join(path, '.obsidian/plugins/wikiship/state.lock'), 'utf8'); }
 
 describe('journal ownership across real process lifetimes', () => {
-  it.each(['exit', 'kill'])('recovers after %s without losing persisted context', async stop => {
+  it.each(['exit', 'kill'])('recovers after %s without losing legacy context data', async stop => {
     const dir = await root(), old = writer(dir, 'seed'); expect((await old.open()).opened).toBe(true);
     const before = await readFile(join(dir, '.obsidian/plugins/wikiship/state.json'), 'utf8');
     if (stop === 'exit') old.child.send('exit'); else old.child.kill('SIGKILL'); await old.exited;

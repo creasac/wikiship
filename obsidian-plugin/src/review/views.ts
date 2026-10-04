@@ -1,14 +1,10 @@
 import { ItemView, MarkdownView, Modal, Notice, type App, type WorkspaceLeaf } from 'obsidian';
 import { diffLines } from 'diff';
-import type { EditorContext } from '../context/editor';
-import type { ResolvedContext } from '../context/references';
 import type { Operation, Snapshot } from '../model';
 import type { Journal } from '../provenance/journal';
 import { locationsForFile, operationLabel } from './changes';
 import { snapshotPage } from './paging';
-import { WIKISHIP_ICON_ID } from '../icon';
 
-export const CONTEXT_VIEW_TYPE = 'wikiship-context';
 export const CHANGES_VIEW_TYPE = 'wikiship-changes';
 
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String(error); }
@@ -34,62 +30,6 @@ async function openLocation(app: App, path: string, from?: number, to?: number) 
     const editor = leaf.view.editor, end = Math.min(editor.getValue().length, to ?? from);
     const start = editor.offsetToPos(Math.min(from, end)), finish = editor.offsetToPos(end);
     editor.setSelection(start, finish); editor.scrollIntoView({ from: start, to: finish }, true);
-  }
-}
-
-export class ContextView extends ItemView {
-  private stop?: () => void;
-  private timer?: ReturnType<typeof setTimeout>;
-  private generation = 0;
-  private opened = false;
-  constructor(leaf: WorkspaceLeaf, readonly context: EditorContext, readonly journal: Journal) { super(leaf); }
-  getViewType() { return CONTEXT_VIEW_TYPE; }
-  getDisplayText() { return 'wikiship context'; }
-  getIcon() { return WIKISHIP_ICON_ID; }
-  async onOpen() {
-    this.opened = true;
-    this.contentEl.addClass('wikiship-view');
-    this.stop = this.context.subscribe(() => {
-      if (this.timer) clearTimeout(this.timer);
-      this.timer = setTimeout(() => { void this.render(); }, 180);
-    });
-    await this.render();
-  }
-  async onClose() {
-    this.opened = false; this.generation++; this.stop?.();
-    if (this.timer) clearTimeout(this.timer);
-  }
-  private async render() {
-    const generation = ++this.generation;
-    const items = await this.context.getContext();
-    if (!this.opened || generation !== this.generation) return;
-    const root = this.contentEl; root.empty();
-    root.createEl('h4', { text: 'wikiship context' });
-    const tools = root.createDiv('wikiship-actions');
-    action(tools, 'Selection', () => this.context.addSelection());
-    action(tools, 'Section', () => this.context.addSection());
-    action(tools, 'Note', () => this.context.addNote());
-    if (!items.length) {
-      root.createEl('p', { cls: 'wikiship-muted', text: 'Select text or place your cursor in a section, then pin it here. Your context stays with you as you switch notes.' });
-      return;
-    }
-    root.createEl('p', { cls: 'wikiship-muted', text: `${items.length} pinned ${items.length === 1 ? 'item' : 'items'} · current content is shared with agents` });
-    const groups = new Map<string, ResolvedContext[]>();
-    for (const item of items) { const group = groups.get(item.path) ?? []; group.push(item); groups.set(item.path, group); }
-    for (const [path, group] of groups) {
-      const section = root.createDiv('wikiship-file-group');
-      section.createEl('h5', { text: path, cls: 'wikiship-path' });
-      for (const item of group) {
-        const row = section.createDiv('wikiship-context-item');
-        const label = item.kind === 'note' ? 'Entire note / file' : item.kind === 'section' ? `§ ${item.headingPath?.join(' › ')}` : 'Selected text';
-        action(row, label, () => openLocation(this.app, path, item.status === 'stale' ? undefined : item.from, item.to), 'wikiship-text-button');
-        row.createSpan({ cls: `wikiship-status wikiship-status-${item.status}`, text: item.status });
-        if (item.reason) row.createEl('p', { text: item.reason, cls: 'wikiship-muted' });
-        else if (item.content) row.createEl('p', { cls: 'wikiship-context-preview', text: item.content.replace(/\s+/g, ' ').slice(0, 140) });
-        action(row, 'Remove', () => this.journal.removeContext(item.id), 'wikiship-text-button wikiship-muted');
-      }
-    }
-    action(root, 'Clear context', () => this.journal.removeContext(), 'wikiship-clear');
   }
 }
 

@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { bytes, emptyState, hash, MAX_FILE_BYTES, MutationPreconditionError, snapshot, stateSchema, textSnapshot, type Operation, type Snapshot, type State, type StateStore, type WorkspaceFiles } from '../src/model';
-import { pin } from '../src/context/references';
 import { Journal } from '../src/provenance/journal';
 
 class MemoryStore implements StateStore {
@@ -356,21 +355,11 @@ describe('journal validation, lifecycle and isolation', () => {
     }
     expect(files.text('note.md')).toBe('AI text');
   });
-  it('returns detached state, mutation and context objects', async () => {
+  it('returns detached state and mutation objects', async () => {
     const { journal, edit } = await setup();
     const op = await edit(); op.status = 'failed'; op.after!.data = 'tampered';
-    const item = pin('note', 'note.md', 'AI text'), added = await journal.addContext(item);
-    item.path = 'wrong.md'; added.path = 'also-wrong.md';
     journal.state.operations[0]!.status = 'failed';
     expect(journal.state.operations[0]).toMatchObject({ status: 'applied', after: { data: 'AI text' } });
-    expect(journal.state.context[0]?.path).toBe('note.md');
-  });
-  it('rejects a reused context ID without corrupting persisted state', async () => {
-    const { journal, store } = await setup();
-    const item = pin('note', 'one.md', 'one');
-    await journal.addContext(item);
-    await expect(journal.addContext({ ...pin('note', 'two.md', 'two'), id: item.id })).rejects.toThrow('ID already exists');
-    expect(stateSchema.parse(store.saved).context).toHaveLength(1);
   });
   it('does not let a failed rendering listener fail a committed mutation', async () => {
     const { journal, edit } = await setup();
@@ -392,18 +381,26 @@ describe('journal validation, lifecycle and isolation', () => {
     expect(journal.state.operations).toHaveLength(2);
     expect(await files.read('three.md')).toBeNull();
   });
-  it('persists deduplicated context and updates nested paths without attributing file events to AI', async () => {
-    const { journal, files, store } = await setup();
-    const item = pin('selection', 'docs/note.md', 'one\ntwo\nthree', 0, 7);
-    await journal.addContext(item); await journal.addContext({ ...item, id: 'second-pin' });
-    await journal.addContext(pin('note', 'docs-extra/note.md', 'other'));
-    await journal.renameContext('docs', 'renamed');
+  it('preserves opaque legacy pins and state fields through edits, review, revert and reload', async () => {
+    const { files, store, journal, edit } = await setup();
+    const first = await edit(); await journal.close();
+    const legacy = [{ id: 'legacy-pin', kind: 'section', path: 'missing.md', snapshot: 'old content', extra: { retained: true } }];
+    store.saved!.context = structuredClone(legacy);
+    store.saved!.legacyMetadata = { retained: ['unknown field'] };
+    const read = vi.spyOn(files, 'read');
+    const next = new Journal(store, files); await next.load();
+    expect(read).not.toHaveBeenCalled();
+    (next.state.context as typeof legacy)[0]!.snapshot = 'tampered detached copy';
+    const op = await next.mutate({ kind: 'edit', path: 'note.md', expectedHash: hash('AI text'), from: 0, to: 7, content: 'second' });
+    await next.markReviewed(op.id); await next.revert(op.id);
+    await next.close();
     const restarted = new Journal(store, files); await restarted.load();
-    expect(restarted.state.context.map(context => context.path)).toEqual(['renamed/note.md', 'docs-extra/note.md']);
-    expect(restarted.state.operations).toEqual([]);
-    await restarted.removeContext(item.id);
-    expect(restarted.state.context).toHaveLength(1);
-    await restarted.removeContext(); expect(restarted.state.context).toEqual([]);
+    expect(restarted.state.context).toEqual(legacy);
+    expect(restarted.state.legacyMetadata).toEqual({ retained: ['unknown field'] });
+    expect(restarted.state.operations[0]).toEqual(first);
+    expect(restarted.state.operations[1]).toMatchObject({ status: 'reverted', review: 'reviewed' });
+    expect(store.saved!.context).toEqual(legacy);
+    expect(read.mock.calls.every(([path]) => path === 'note.md')).toBe(true);
   });
   it('validates the empty v1 state', () => { expect(stateSchema.parse(emptyState())).toEqual(emptyState()); });
 });

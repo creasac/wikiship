@@ -1,4 +1,4 @@
-import { contextSchema, emptyState, id, isTextBoundary, MAX_FILE_BYTES, MutationPreconditionError, operationSchema, stateSchema, textOf, textSnapshot, SerialQueue, type ContextItem, type Operation, type State, type StateStore, type WorkspaceFiles } from '../model';
+import { emptyState, id, isTextBoundary, MAX_FILE_BYTES, MutationPreconditionError, operationSchema, stateSchema, textOf, textSnapshot, SerialQueue, type Operation, type State, type StateStore, type WorkspaceFiles } from '../model';
 
 type FilePhase = 'before' | 'after' | 'unknown';
 
@@ -52,25 +52,6 @@ export class Journal {
   private assertStorage() {
     if (this.persistenceFault) throw new Error('Journal persistence failed. Run Recover interrupted operations before further changes.');
   }
-  async addContext(item: ContextItem) { return this.run(async () => {
-    this.assertStorage();
-    const validated = contextSchema.parse(item), next = this.state;
-    const existing = next.context.find(i => i.kind === validated.kind && i.path === validated.path && i.contentHash === validated.contentHash && i.from === validated.from && JSON.stringify(i.headingPath) === JSON.stringify(validated.headingPath));
-    if (existing) return existing;
-    if (next.context.some(i => i.id === validated.id)) throw new Error('Context item ID already exists.');
-    next.context.push(validated); await this.save(next); return structuredClone(validated);
-  }); }
-  async removeContext(itemId?: string) { return this.run(async () => {
-    this.assertStorage();
-    const next = this.state; next.context = itemId ? next.context.filter(i => i.id !== itemId) : [];
-    await this.save(next); return { remaining: next.context.length };
-  }); }
-  async renameContext(oldPath: string, newPath: string) { return this.run(async () => {
-    this.assertStorage();
-    const next = this.state;
-    for (const item of next.context) if (item.path === oldPath || item.path.startsWith(oldPath + '/')) item.path = newPath + item.path.slice(oldPath.length);
-    await this.save(next);
-  }); }
   private assertSettled() {
     this.assertStorage();
     if (this.current.operations.some(o => ['prepared', 'reverting', 'uncertain'].includes(o.status))) throw new Error('An operation needs recovery. Inspect AI Changes and run Recover interrupted operations before further mutations.');

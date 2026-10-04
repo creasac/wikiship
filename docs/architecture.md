@@ -1,12 +1,12 @@
 # Architecture
 
-wikiship is a desktop Obsidian plugin. `src/context` manages references to explicit human context; `src/provenance` owns state and mutations; `src/review` supplies native views and CodeMirror gutters; `src/mcp` registers tool definitions with Local REST API. The launch adapter lives in `src/integrations/chatgpt` and contains no model API calls.
+wikiship is a desktop Obsidian plugin. `src/context` reads the current editor selection, cursor, and section metadata; `src/provenance` owns state and mutations; `src/review` supplies native views and CodeMirror gutters; `src/mcp` registers tool definitions with Local REST API. The launch adapter lives in `src/integrations/chatgpt` and contains no model API calls.
 
-## Context references
+## Live editor context
 
-Pins contain an ID, vault-relative path, kind, original offsets, SHA-256 hashes, a snapshot, adjacent anchors, and optional heading ancestry. Reads prefer a consistent live editor buffer, then use an uncached Obsidian adapter read. Each response identifies its source, file hash, offsets, and freshness. The basket persists across files, tabs, and plugin restarts.
+Each call captures the active editor's text, selection, cursor, and path, then validates that they still match after asynchronous policy/content checks. Reads prefer a consistent live editor buffer and identify their source and whole-file hash. Selection responses include the exact selected text and source-aware link metadata. No persistent basket or saved selection is used.
 
-An unchanged selection may relocate when its surrounding text remains uniquely identifiable. Editing its text or making its anchors ambiguous makes it stale. Sections resolve by unique heading ancestry; changed section text remains available with a `changed` status. Missing/ambiguous headings are stale. Notes resolve their whole current content.
+Editor state returns section heading ancestry and UTF-16 ranges, not the section body. The bounded file-state tool reads saved bytes; a client must compare its hash with the editor hash before using its excerpt for an editor edit. A missing editor is reported explicitly with no invented selection. Switching tabs changes the context of the next call.
 
 Current heading positions come from the established Lezer Markdown parser because Obsidian's asynchronous metadata cache does not expose a synchronous parse of an unsaved buffer. It handles standard ATX/setext headings, fences, and exclusion of YAML frontmatter. It does not model rich artifact elements. Paths and headings in returned context are data, not instructions.
 
@@ -44,8 +44,8 @@ This bridge controls tools exposed by that connection. A client with another con
 
 Files remain in the original vault/project. There is no import, proprietary document format, search index, cloud service, model provider, or sync layer. Default generated-directory exclusions apply only to wikiship. Users edit these rules in wikiship settings; Obsidian configuration is otherwise untouched.
 
-`<configDir>/plugins/wikiship/state.json` holds pins and the journal. `state.lock` and `state.lock.guard` enforce the local writer lock; both are ownership metadata, not journal backups. Snapshot retention is unbounded in this initial version; review does not purge recovery data. Users should arrange their own backup and sync policies, avoiding simultaneous synchronization/writing of the journal. When state changes externally, wikiship stops instead of silently merging it.
+`<configDir>/plugins/wikiship/state.json` holds the journal. Existing version-1 `context` data and unknown top-level fields are preserved unchanged as opaque compatibility data across journal saves. Legacy pins are not resolved, updated on rename, or exposed through tools. New journals omit `context`. Operation and snapshot validation remains strict; legacy pin content cannot block a valid journal from loading. Retired basket panes restored from an older workspace are closed when the layout is ready. `state.lock` and `state.lock.guard` enforce the local writer lock; both are ownership metadata, not journal backups. Snapshot retention is unbounded in this initial version; review does not purge recovery data. Users should arrange their own backup and sync policies, avoiding simultaneous synchronization/writing of the journal. When state changes externally, wikiship stops instead of silently merging it.
 
 ## Launch adapter
 
-The [official desktop deep-link reference](https://learn.chatgpt.com/docs/reference/commands#deep-links) documents `codex://threads/new?path=...&prompt=...`. Both values are encoded separately. The path is the vault root, and the prompt includes pinned IDs and tool names, with no API keys or copied note bodies. No published wikiship desktop-plugin identifier exists yet, so the adapter uses real tool references rather than inventing a `plugin://` mention. The composer remains unsent; other clients can use the copy-prompt command.
+The [official desktop deep-link reference](https://learn.chatgpt.com/docs/reference/commands#deep-links) documents `codex://threads/new?path=...&prompt=...`. Both values are encoded separately. The path is the vault root, and the prompt includes live selection/section guidance and tool names, with no API keys or copied note bodies. No published wikiship desktop-plugin identifier exists yet, so the adapter uses real tool references rather than inventing a `plugin://` mention. The composer remains unsent; other clients can use the copy-prompt command.

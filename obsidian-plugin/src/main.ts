@@ -1,4 +1,4 @@
-import { FileSystemAdapter, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TFile, type App, type EventRef } from 'obsidian';
+import { FileSystemAdapter, Notice, Plugin, PluginSettingTab, Setting, type App, type EventRef } from 'obsidian';
 import { getAPI, type LocalRestApiPublicApi } from 'obsidian-local-rest-api';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -8,7 +8,7 @@ import { trackJournalShutdown, waitForJournalShutdown } from './provenance/lifec
 import { AtomicStateStore, DEFAULT_EXCLUSIONS, PathPolicy } from './provenance/storage';
 import { ObsidianFiles } from './provenance/obsidian-files';
 import { EditorContext } from './context/editor';
-import { ChangesView, ChangeModal, ContextView, RevertFileModal, CHANGES_VIEW_TYPE, CONTEXT_VIEW_TYPE, nextUnreviewed } from './review/views';
+import { ChangesView, ChangeModal, RevertFileModal, CHANGES_VIEW_TYPE, nextUnreviewed } from './review/views';
 import { createReviewExtension } from './review/gutter';
 import { registerTools } from './mcp/tools';
 import { codexDeepLink, handoffPrompt } from './integrations/chatgpt/launch';
@@ -44,34 +44,22 @@ export default class WikiShip extends Plugin {
       this.journal = new Journal(this.store, files);
       await this.journal.load();
       if (this.stopped) return;
-      this.context = new EditorContext(this.app, this.journal, path => files.readContext(path));
-      this.register(() => this.context.dispose());
+      this.context = new EditorContext(this.app, path => files.readContext(path));
       registerWikiShipIcon();
-      this.registerView(CONTEXT_VIEW_TYPE, leaf => new ContextView(leaf, this.context, this.journal));
       this.registerView(CHANGES_VIEW_TYPE, leaf => new ChangesView(leaf, this.journal));
       const gutter = createReviewExtension(this.journal, id => new ChangeModal(this.app, this.journal, id).open());
       this.registerEditorExtension(gutter.extension);
       this.register(gutter.destroy);
       this.connection = this.addStatusBarItem();
-      this.addRibbonIcon(WIKISHIP_ICON_ID, 'wikiship context', () => this.run(() => this.openView(CONTEXT_VIEW_TYPE)));
+      this.addRibbonIcon(WIKISHIP_ICON_ID, 'wikiship AI Changes', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
       this.addCommands();
       this.addSettingTab(new WikiShipSettings(this.app, this));
-      this.registerEvent(this.app.workspace.on('editor-menu', (menu, editor, info) => {
-        if (!info.file) return;
-        if (editor.somethingSelected()) menu.addItem(item => item.setTitle('Add selection to wikiship context').setIcon('pin').onClick(() => this.run(() => this.context.addSelection())));
-        menu.addItem(item => item.setTitle('Add current section to wikiship context').setIcon('heading').onClick(() => this.run(() => this.context.addSection())));
-        menu.addItem(item => item.setTitle('Add current note to wikiship context').setIcon('file-text').onClick(() => this.run(() => this.context.addNote(info.file!.path))));
-      }));
-      this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
-        if (!(file instanceof TFile)) return;
-        menu.addItem(item => item.setTitle('Add file to wikiship context').setIcon('pin').onClick(() => this.run(() => this.context.addNote(file.path))));
-      }));
-      this.registerEvent(this.app.vault.on('rename', (file, oldPath) => this.run(() => this.journal.renameContext(oldPath, file.path))));
       this.registerEvent(this.app.workspace.on('obsidian-local-rest-api:loaded', () => this.connectMcp()));
       this.app.workspace.onLayoutReady(() => {
         if (this.stopped) return;
         this.connectMcp();
-        if (this.journal.state.context.length) this.run(() => this.openView(CONTEXT_VIEW_TYPE));
+        // Retire panes restored from older layouts; retain their saved pin data in the journal.
+        for (const leaf of this.app.workspace.getLeavesOfType('wikiship-context')) leaf.detach();
       });
     } catch (error) {
       new Notice(`wikiship could not start: ${message(error)}`, 15000);
@@ -85,26 +73,7 @@ export default class WikiShip extends Plugin {
     void Promise.resolve().then(task).catch(error => new Notice(`wikiship: ${message(error)}`, 9000));
   }
   private addCommands() {
-    this.addCommand({ id: 'open-context', name: 'Show context', callback: () => this.run(() => this.openView(CONTEXT_VIEW_TYPE)) });
     this.addCommand({ id: 'open-changes', name: 'Show AI Changes', callback: () => this.run(() => this.openView(CHANGES_VIEW_TYPE)) });
-    for (const [kind, name] of [['selection', 'selection'], ['section', 'current section'], ['note', 'current note']] as const) {
-      this.addCommand({ id: `add-${kind}`, name: `Add ${name} to wikiship context`, checkCallback: checking => {
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        const available = !!view?.file && (kind !== 'selection' || (view.getMode() === 'source' && view.editor.somethingSelected()));
-        if (!checking && available) this.run(async () => {
-          if (kind === 'selection') await this.context.addSelection();
-          else if (kind === 'section') await this.context.addSection();
-          else await this.context.addNote();
-          await this.openView(CONTEXT_VIEW_TYPE);
-        });
-        return available;
-      } });
-    }
-    this.addCommand({ id: 'remove-context', name: 'Remove current file from wikiship context', callback: () => this.run(async () => {
-      const path = this.app.workspace.getActiveFile()?.path;
-      for (const item of this.journal.state.context.filter(item => item.path === path)) await this.journal.removeContext(item.id);
-    }) });
-    this.addCommand({ id: 'clear-context', name: 'Clear wikiship context', callback: () => this.run(() => this.journal.removeContext()) });
     this.addCommand({ id: 'next-change', name: 'Next unreviewed AI change', callback: () => this.run(() => nextUnreviewed(this.app, this.journal)) });
     this.addCommand({ id: 'mark-all-reviewed', name: 'Mark all AI changes reviewed', callback: () => this.run(() => this.journal.markReviewed()) });
     this.addCommand({ id: 'revert-file', name: 'Revert all AI changes in current file', callback: () => this.run(async () => {
@@ -120,7 +89,7 @@ export default class WikiShip extends Plugin {
       new Notice('wikiship handoff prompt copied.');
     }) });
   }
-  private launchContext() { return { path: this.root, vaultName: this.app.vault.getName(), itemIds: this.journal.state.context.map(i => i.id) }; }
+  private launchContext() { return { path: this.root, vaultName: this.app.vault.getName() }; }
   private async launch() {
     const url = codexDeepLink(this.launchContext());
     const { shell } = require('electron') as { shell: { openExternal(url: string): Promise<void> } };
@@ -165,7 +134,7 @@ class WikiShipSettings extends PluginSettingTab {
   display() {
     this.containerEl.empty();
     this.containerEl.createEl('h2', { text: 'wikiship' });
-    this.containerEl.createEl('p', { text: 'Connect through Local REST API 5.3.0 or later. Use the wikiship MCP bridge to restrict agents to tracked mutations. Context and complete change snapshots stay in this vault’s wikiship plugin directory.' });
+    this.containerEl.createEl('p', { text: 'Connect through Local REST API 5.3.0 or later. Use the wikiship MCP bridge to restrict agents to tracked mutations. The operation journal and complete change snapshots stay in this vault’s wikiship plugin directory.' });
     new Setting(this.containerEl).setName('Excluded directory names').setDesc('One name per line. Applies only to wikiship reads and writes. Obsidian settings are unchanged. Reload wikiship after editing.').addTextArea(input => input.setValue(this.plugin.settings.exclusions.join('\n')).onChange(async value => {
       const exclusions = value.split('\n').map(line => line.trim()).filter(Boolean);
       if (exclusions.some(name => name.includes('/') || name.includes('\\') || name === '.' || name === '..')) return;

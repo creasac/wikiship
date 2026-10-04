@@ -13,9 +13,8 @@ import { CallToolRequestSchema, ListToolsRequestSchema, ToolListChangedNotificat
 export const ALLOWED_TOOLS = Object.freeze([
   'vault_list', 'vault_read', 'vault_get_document_map', 'active_file_get_path',
   'search_query', 'search_simple', 'tag_list',
-  'wikiship_get_editor_state', 'wikiship_get_selection', 'wikiship_get_context',
-  'wikiship_context_add_selection', 'wikiship_context_add_section', 'wikiship_context_add_note',
-  'wikiship_context_remove', 'wikiship_context_clear', 'wikiship_get_file_state',
+  'wikiship_get_editor_state', 'wikiship_get_selection',
+  'wikiship_get_file_state',
   'wikiship_replace_range', 'wikiship_replace_selection', 'wikiship_insert_at_cursor',
   'wikiship_patch_section', 'wikiship_create_file', 'wikiship_delete_file',
   'wikiship_move_file', 'wikiship_rename_file', 'wikiship_get_changes',

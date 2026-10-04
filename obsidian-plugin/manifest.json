@@ -3,7 +3,7 @@
   "name": "wikiship",
   "version": "0.1.3",
   "minAppVersion": "1.13.1",
-  "description": "Pin explicit context and review tracked changes from external AI agents.",
+  "description": "Share live editor context and review tracked changes from external AI agents.",
   "author": "wikiship",
   "isDesktopOnly": true
 }

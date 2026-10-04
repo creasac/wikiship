@@ -36,7 +36,7 @@ export class ObsidianFiles implements WorkspaceFiles {
     if (editors.length) {
       const text = editors[0]!.getValue();
       if (Buffer.byteLength(text) > MAX_FILE_BYTES) throw new Error('Context file exceeds 5 MiB.');
-      if (editors.some(editor => editor.getValue() !== text)) throw new Error('Open editors disagree about this file. Save them before pinning context.');
+      if (editors.some(editor => editor.getValue() !== text)) throw new Error('Open editors disagree about this file. Save them before reading context.');
       return { text, source: 'editor' as const, mtime: this.app.vault.getFileByPath(path)?.stat.mtime };
     }
     return { text: textOf(file), source: 'disk' as const, mtime: this.app.vault.getFileByPath(path)?.stat.mtime };

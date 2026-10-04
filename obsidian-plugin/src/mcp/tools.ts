@@ -7,10 +7,6 @@ export interface EditorTarget { path: string; from: number; to: number; fileHash
 export interface WikiShipContext {
   getEditorState(): unknown | Promise<unknown>;
   getSelection(): unknown | Promise<unknown>;
-  getContext(): Promise<unknown>;
-  addSelection(): Promise<unknown>;
-  addSection(): Promise<unknown>;
-  addNote(path?: string): Promise<unknown>;
   selectionTarget(): Promise<EditorTarget>;
   cursorTarget(): Promise<EditorTarget>;
   sectionTarget(headingPath?: string[]): Promise<EditorTarget>;
@@ -65,12 +61,6 @@ export function createToolDefinitions(context: WikiShipContext, journal: Journal
   return [
     tool('wikiship_get_editor_state', 'Read the active Markdown editor, cursor, selection, current section, and open Markdown tabs.', {}, async () => context.getEditorState()),
     tool('wikiship_get_selection', 'Read the active selection, its UTF-16 offsets, and the entire file hash.', {}, async () => context.getSelection()),
-    tool('wikiship_get_context', 'Resolve explicitly pinned context against current content. Stale references never return unrelated text.', {}, () => context.getContext()),
-    tool('wikiship_context_add_selection', 'Pin the current nonempty editor selection in the persistent context basket.', {}, () => context.addSelection(), true),
-    tool('wikiship_context_add_section', 'Pin the current Markdown section, including its heading and nested sections.', {}, () => context.addSection(), true),
-    tool('wikiship_context_add_note', 'Pin the current note or an explicitly named UTF-8 file.', { path: path.optional() }, args => context.addNote(args.path), true),
-    tool('wikiship_context_remove', 'Remove one pinned context item by ID. Does not change a file.', { id: z.string().min(1) }, args => journal.removeContext(args.id), true),
-    tool('wikiship_context_clear', 'Clear the pinned context basket. Does not change files.', {}, () => journal.removeContext(), true),
     tool('wikiship_get_file_state', 'Read a file hash and a bounded text excerpt for mutation preconditions. Binary files return metadata only. No search is performed.', {
       path, from: offset.default(0), length: z.number().int().min(1).max(100_000).default(20_000),
     }, async args => {

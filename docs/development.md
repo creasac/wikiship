@@ -19,7 +19,8 @@ The Local REST API npm package supplies only its small extension helper and publ
 
 The tests cover:
 
-- Exact selection references, stale/ambiguous anchors, unique section ancestry, real Markdown heading parsing, and editor-state races.
+- Live selections, source-aware links, unique section ancestry, real Markdown heading parsing, and editor-state races.
+- Opaque legacy pin/state preservation through load, edits, review, revert, and restart; removed MCP names rejected by both plugin and bridge.
 - MCP schema publication and calls through an actual MCP SDK client, plus the bridge's fixed allowlist and rejection of untracked writes.
 - Write-ahead intent, concurrent mutation serialization, snapshot integrity, deletion recovery, binary preservation, and safe inverse operations.
 - Persistence failures before/after file writes, restart recovery, uncertain partial moves, inverse recovery direction, shutdown drain, and corrupted saved state.
@@ -48,33 +49,26 @@ The default fixture HTTP port is `29123`; set `WIKISHIP_SMOKE_PORT` if it is alr
 
 The fixture uses local HTTP with a randomly generated API key solely inside the disposable test profile. Normal client setup defaults to the host's authenticated HTTPS endpoint with a trusted certificate. The test's short polling loops wait for actual editor, server, or persistence state; they do not use keyboard automation to send a ChatGPT prompt.
 
-### Verified baseline — 2026-10-01
+### Earlier native baseline — 2026-10-01
 
-`npm run check` passed TypeScript, all **87 tests**, and the production bundle build. The native fixture passed **10 grouped checks** on Obsidian **1.13.7 / Electron 43.3.0** with Local REST API **5.3.0**, with no captured renderer errors:
+The pre-removal baseline passed TypeScript, 87 tests, a production build, and 10 native grouped checks on Obsidian 1.13.7 / Electron 43.3.0 with Local REST API 5.3.0. It had no captured renderer errors. That result applies to the former pin-based workflow and does not verify the current live-context revision.
 
-- Both cross-note pins and their exact current text through the real MCP endpoint.
-- Immediate editor edits, clickable gutter markers, native diff inspection, marking reviewed, and UI revert.
-- Refusal to overwrite a newer human editor change.
-- File creation, move, deletion diff and UI restoration, plus an ordinary source-code file edit.
-- Complete paged review and safe revert of an EOF change too large for an inline diff, including literal HTML-like text.
-- Context/journal persistence and registration after both plugin and host reloads.
-- The separate stdio bridge process, its 25 allowed tools, context reads, and refusal of untracked command/open-file tools.
-- The native Ask ChatGPT command's outgoing URL, exact vault path, prompt, and current pin IDs, with `shell.openExternal` intercepted in the disposable process.
+The updated harness now checks live selection and section metadata, absence of pin commands/tools/sidebar, exact editor updates, gutter and diff review, conflict-safe revert, file operations, paged snapshot review, legacy data and journal persistence, host reload, the 19-tool bridge, and live-context handoff instructions. Run it in a disposable profile before claiming native verification for this revision. It intercepts outgoing Codex links; the external composer remains a separate manual check.
 
-The harness writes `artifacts/obsidian-acceptance.json` and `artifacts/obsidian-acceptance.png`. These generated local artifacts are not committed. Native command dispatch is verified; the actual external Codex composer remains the manual check below. The installed Linux system has a registered `codex:` handler, but the test deliberately does not open a real chat.
+The harness writes `artifacts/obsidian-acceptance.json` and `artifacts/obsidian-acceptance.png`. Generated local artifacts are not committed.
 
 ## Manual desktop acceptance
 
 Use a disposable ordinary project folder containing Markdown and source files. Install both plugins and connect an MCP client using the bridge guide.
 
-1. Pin a two-paragraph selection in note A and a section in note B. Switch tabs and reload wikiship; both pins should remain.
-2. Fetch context through MCP. Verify exact content, offsets, hashes, and stale status after modifying a pinned selection.
+1. Select two paragraphs in note A. Fetch live editor state and verify the exact selection, offsets, hash, and link metadata. Switch to note B; the next read must describe B.
+2. Put the cursor in a section in B. Verify its heading path/range; read its saved body with `wikiship_get_file_state` and compare hashes. Move the selection/cursor after reading and verify a mutation using the old target is refused.
 3. Change B through a wikiship tool. Verify immediate editor update, subtle gutter marker, sidebar entry, and literal before/after diff.
 4. Mark reviewed, then revert. Confirm review status does not prevent a safe revert.
 5. Repeat an AI edit, then type a human change before reverting. Verify a conflict and preservation of the human edit.
 6. Create, move, rename, and delete a file through MCP; inspect and restore it. Repeat delete/restore with a binary file within the 5 MiB limit.
 7. Verify ordinary typing and direct external writes create no AI journal entry.
-8. Disable/re-enable the host and wikiship in either order. Verify tools are cleaned up and registered once, and context/journal state survives.
+8. Disable/re-enable the host and wikiship in either order. Verify tools are cleaned up and registered once, and journal plus any legacy pin data survives. Confirm that pin commands, basket tools, and the basket sidebar are absent.
 9. Invoke **Ask ChatGPT / Open in Codex** with the desktop app installed and its URL handler registered. Confirm the actual project path and prefilled wikiship instructions. The prompt should remain unsent.
 
 Native launching of the separate ChatGPT/Codex desktop app depends on that machine's URL handler and is a separate manual check from the Obsidian fixture. The schema used by the adapter is [officially documented](https://learn.chatgpt.com/docs/reference/commands#deep-links).

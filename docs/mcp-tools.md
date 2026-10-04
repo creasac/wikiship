@@ -8,7 +8,7 @@ The host owns HTTP, authentication, protocol negotiation, and sessions. wikiship
 
 The host's shared MCP endpoint also exposes its own file writes and arbitrary Obsidian command execution. Its extension API does not provide a per-extension permission boundary to disable these. A direct connection therefore relies on an agent following instructions to use wikiship mutations.
 
-Use the included **tools-only stdio bridge** when configuring an agent for attributed work. It connects to the same host endpoint and forwards the exact 18 wikiship tools listed below and seven inspected host read tools: `vault_list`, `vault_read`, `vault_get_document_map`, `active_file_get_path`, `search_query`, `search_simple`, and `tag_list`. This reuses the host’s reading, structure, metadata, and Obsidian search capabilities. It refuses host write tools, command execution, unknown names, and names that merely start with `wikiship_`. It exposes no host resources or prompts. Host read tools follow the host’s access policy; wikiship’s directory exclusions govern its own context and mutation tools, not host search results. Calls through another MCP connection, shell tools, or direct filesystem access are outside this boundary and do not acquire wikiship provenance.
+Use the included **tools-only stdio bridge** when configuring an agent for attributed work. It connects to the same host endpoint and forwards the exact 12 wikiship tools listed below and seven inspected host read tools: `vault_list`, `vault_read`, `vault_get_document_map`, `active_file_get_path`, `search_query`, `search_simple`, and `tag_list`. This reuses the host’s reading, structure, metadata, and Obsidian search capabilities. It refuses host write tools, command execution, unknown names, and names that merely start with `wikiship_`. It exposes no host resources or prompts. Host read tools follow the host’s access policy; wikiship’s directory exclusions govern its own context and mutation tools, not host search results. Calls through another MCP connection, shell tools, or direct filesystem access are outside this boundary and do not acquire wikiship provenance.
 
 After `npm install` in this repository, configure a stdio MCP server with:
 
@@ -34,7 +34,7 @@ Download the host's CA certificate using **Settings → Local REST API** and poi
 
 When the client lists tools, expect the installed wikiship tools and the seven approved host read tools. `vault_write`, `command_execute`, `open_file`, and upload-URL tools must be absent. The host’s `open_file` can create a missing file, so it is deliberately excluded. Restart the client connection after changing its environment. If Obsidian restarts, reconnect the client so a new host session is negotiated.
 
-## Context tools
+## Live context tools
 
 Pass `{}` as the arguments for a tool with no parameters; the bridge also supplies it when a client omits arguments.
 
@@ -42,24 +42,26 @@ Pass `{}` as the arguments for a tool with no parameters; the bridge also suppli
 | --- | --- | --- |
 | `wikiship_get_editor_state` | none | Active file/hash, cursor, selection offsets/content, section and open Markdown tabs; a reason when no usable editor exists. |
 | `wikiship_get_selection` | none | Current selection, whole-file hash and UTF-16 offsets. |
-| `wikiship_get_context` | none | Current resolved pinned items, each marked `current`, `changed` or `stale`. |
-| `wikiship_context_add_selection` | none | Pin the current nonempty selection. |
-| `wikiship_context_add_section` | none | Pin the section containing the current cursor. |
-| `wikiship_context_add_note` | optional `path` | Pin a named UTF-8 file, or the current note. |
-| `wikiship_context_remove` | `id` | Remove one pin. |
-| `wikiship_context_clear` | none | Clear all pins. |
 
-Selection responses (including `wikiship_get_editor_state.selection`) and resolved pinned items include a `links` array. Complete wikilinks/embeds and inline Markdown links within the returned passage retain their literal `raw` text. Each internal link includes `linkpath`, its original heading/block `subpath`, optional alias/label `displayText`, and the vault-relative `targetPath` returned by Obsidian's source-aware resolver. `status: "unresolved"` with `targetPath: null` means no target file was found; `resolved` confirms the file, not the existence of the heading/block. For example, `[[tmplt#Checklist|Template]]` can report `targetPath: "Templates/tmplt.md"`, `subpath: "#Checklist"`, and `displayText: "Template"` without changing the original text. These are paths, not external URLs.
+Selection responses (including `wikiship_get_editor_state.selection`) include a `links` array. Complete wikilinks/embeds and inline Markdown links within the returned passage retain their literal `raw` text. Each internal link includes `linkpath`, its original heading/block `subpath`, optional alias/label `displayText`, and the vault-relative `targetPath` returned by Obsidian's source-aware resolver. `status: "unresolved"` with `targetPath: null` means no target file was found; `resolved` confirms the file, not the existence of the heading/block. For example, `[[tmplt#Checklist|Template]]` can report `targetPath: "Templates/tmplt.md"`, `subpath: "#Checklist"`, and `displayText: "Template"` without changing the original text. These are paths, not external URLs.
 
-Link metadata is computed when context is read; it never opens or reads linked files and does not change saved pins or journal state. Stale pins return no link targets. Code examples, escaped links, external URLs, partial links, and Markdown reference-style links are not expanded.
+Link metadata is computed when context is read; it never opens or reads linked files and does not change journal state. Code examples, escaped links, external URLs, partial links, and Markdown reference-style links are not expanded.
 
-Selections resolve by unchanged anchored content; modified or ambiguous selections become stale. Sections resolve through a unique full heading path. Section content includes the heading and nested subsections until the next heading at the same or higher level. Stale items report a reason instead of silently returning a different passage. Pinned items persist while the human switches tabs and across plugin restarts.
+Use the current nonempty selection as the starting context. Without a selection, use the active file and cursor section metadata. Calls capture current editor state and fail or report an unavailable editor if the buffer, cursor, selection, or active file changes during a read. Reread after switching tabs or changing the selection.
+
+Section metadata includes a full heading path and range covering the heading and nested subsections until the next heading at the same or higher level. It does not include the body. Use `wikiship_get_file_state` for bounded saved-file excerpts; compare its `fileHash` with the editor hash. If they differ, save or resolve the editor/disk difference and reread before editing. Section edits require a unique full heading path.
+
+## Removal of persistent pins
+
+The basket sidebar, pin commands, and these six APIs are removed: `wikiship_get_context`, `wikiship_context_add_selection`, `wikiship_context_add_section`, `wikiship_context_add_note`, `wikiship_context_remove`, and `wikiship_context_clear`. They are not aliases for live context and calls are rejected. Update prompts and clients to use `wikiship_get_editor_state` / `wikiship_get_selection`, then bounded file reads when needed. There is no cross-note persistent basket replacement.
+
+Update the bridge source alongside the plugin and reconnect the MCP client to refresh its catalog. The bridge exposes 12 wikiship tools plus seven host read tools (19 total), and refuses removed pin tools even if an older upstream plugin still advertises them. Existing saved pins remain opaque in `state.json`; no migration deletes them or the operation journal. No credentials or server configuration need to change.
 
 ## Reading mutation preconditions
 
 `wikiship_get_file_state({path, from?, length?})` returns `exists`, `fileHash`, byte `size`, and `encoding`. UTF-8 files also return a bounded `content` excerpt, its `[from,to)` offsets, `totalLength`, and `nextOffset`. The default excerpt is 20,000 UTF-16 code units; the maximum is 100,000 per call. A missing file returns `exists: false`. Binary files return metadata/hash without their encoded content.
 
-Use this read when the expected hash is not already available in editor state or resolved context. This is a bounded precondition/read tool for the bridge, not a second search service.
+Use this read when the expected hash is not already available in editor state. This is a bounded precondition/read tool for the bridge, not a second search service.
 
 ## Attributed mutation tools
 
@@ -110,6 +112,6 @@ Review, marking reviewed, revert, and recovery stay in the human Obsidian interf
 
 ## Verified protocol behavior
 
-`npm test` includes real MCP SDK clients over paired in-memory transports. The tests exercise the actual registered definitions and emitted schemas, pinning across files, context resolution after mutation, section edits, journal snapshots, file creation/moves/renames/deletion, safe human recovery, stale hashes, selection drift, invalid arguments, and bridge filtering.
+`npm test` includes real MCP SDK clients over paired in-memory transports. Tests exercise live selection reads, the 12 registered definitions and emitted schemas, section edits, journal snapshots, file operations, safe human recovery, stale hashes, selection drift, and invalid arguments. Bridge tests reject removed pin tools even when an older upstream server offers them. Compatibility tests preserve legacy data through journal operations and reloads.
 
-The native acceptance harness also runs an SDK Streamable HTTP client against Local REST API 5.3.0 inside Obsidian 1.13.7. It verifies all 18 registrations, cross-note context, attributed edits and file operations, review/revert in the actual UI, persistence, and host reload. A separate stdio client starts the real bridge process, verifies its 25 allowed tools, fetches context, and confirms that command execution and `open_file` are refused. See [development and verification](development.md) for the reproducible fixture and the separate desktop-composer check.
+The native acceptance harness targets Local REST API 5.3.0 inside Obsidian 1.13.7. Its current assertions cover 12 registrations, live context, attributed edits, review/revert, persistence, and a 19-tool stdio bridge. See [development and verification](development.md) for how to run it; the earlier native baseline predates the pin removal.

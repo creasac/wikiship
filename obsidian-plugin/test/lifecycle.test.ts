@@ -6,7 +6,7 @@ import { FileSystemAdapter, type App, type PluginManifest } from 'obsidian';
 import WikiShip from '../src/main';
 import { AtomicStateStore } from '../src/provenance/storage';
 import { waitForJournalShutdown } from '../src/provenance/lifecycle';
-import { pin } from '../src/context/references';
+import type { Operation, Snapshot } from '../src/model';
 
 // Only the desktop UI boundary is mocked. Startup, journal queue, persistence,
 // filesystem lock, and unload are the production implementations.
@@ -22,9 +22,13 @@ vi.mock('obsidian', () => ({
   },
 }));
 vi.mock('obsidian-local-rest-api', () => ({ getAPI: vi.fn() }));
-vi.mock('../src/provenance/obsidian-files', () => ({ ObsidianFiles: class {} }));
-vi.mock('../src/context/editor', () => ({ EditorContext: class { dispose() {} } }));
-vi.mock('../src/review/views', () => ({ ChangesView: class {}, ChangeModal: class {}, ContextView: class {}, RevertFileModal: class {}, CHANGES_VIEW_TYPE: 'changes', CONTEXT_VIEW_TYPE: 'context', nextUnreviewed: vi.fn() }));
+vi.mock('../src/provenance/obsidian-files', () => ({ ObsidianFiles: class {
+  private files = new Map<string, Snapshot>();
+  async read(path: string) { return this.files.get(path) ?? null; }
+  async apply(op: Operation) { if (op.after) this.files.set(op.path, op.after); else this.files.delete(op.path); }
+} }));
+vi.mock('../src/context/editor', () => ({ EditorContext: class {} }));
+vi.mock('../src/review/views', () => ({ ChangesView: class {}, ChangeModal: class {}, RevertFileModal: class {}, CHANGES_VIEW_TYPE: 'changes', nextUnreviewed: vi.fn() }));
 vi.mock('../src/review/gutter', () => ({ createReviewExtension: () => ({ extension: [], destroy() {} }) }));
 vi.mock('../src/mcp/tools', () => ({ registerTools: vi.fn() }));
 
@@ -40,23 +44,40 @@ async function fixture() {
 }
 afterEach(async () => { vi.restoreAllMocks(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 
-async function blockedPin(plugin: WikiShip) {
+async function blockedMutation(plugin: WikiShip) {
   const entered = gate(), finish = gate(), save = AtomicStateStore.prototype.save;
   vi.spyOn(AtomicStateStore.prototype, 'save').mockImplementationOnce(async function(this: AtomicStateStore, state) { entered.release(); await finish.promise; return save.call(this, state); });
-  const item = pin('note', 'synthetic.md', 'synthetic test content');
-  const pending = plugin.journal.addContext(item);
+  const pending = plugin.journal.mutate({ kind: 'create', path: 'synthetic.md', content: 'synthetic test content' });
   await entered.promise;
-  return { item, pending, finish };
+  return { pending, finish };
 }
 
 describe('plugin journal lifecycle', () => {
+  it('retires restored basket panes without altering legacy data or other panes', async () => {
+    const { root, directory, plugin } = await fixture();
+    const legacy = { version: 1 as const, context: [{ id: 'retained', snapshot: 'legacy data' }], operations: [] };
+    const store = new AtomicStateStore(directory, root);
+    await store.open(); await store.load(); await store.save(legacy); await store.close();
+    const oldPane = { detach: vi.fn() };
+    const instance = plugin(), ready = vi.fn();
+    Object.assign(instance.app.workspace, { onLayoutReady: ready, getLeavesOfType: vi.fn(() => [oldPane]) });
+    await instance.onload();
+    try {
+      ready.mock.calls[0]![0]();
+      expect(instance.app.workspace.getLeavesOfType).toHaveBeenCalledExactlyOnceWith('wikiship-context');
+      expect(oldPane.detach).toHaveBeenCalledOnce();
+      expect(instance.journal.state.context).toEqual(legacy.context);
+      expect(JSON.parse(await readFile(join(directory, 'state.json'), 'utf8'))).toEqual(legacy);
+    } finally { instance.onunload(); await waitForJournalShutdown(directory); }
+  });
+
   it('waits across module reload for accepted writes, then opens their saved state', async () => {
     const { root, directory, plugin } = await fixture();
     const old = plugin(); await old.onload();
-    const work = await blockedPin(old), lock = join(directory, 'state.lock');
+    const work = await blockedMutation(old), lock = join(directory, 'state.lock');
     const before = await readFile(lock, 'utf8');
     old.onunload();
-    await expect(old.journal.removeContext()).rejects.toThrow('unloading');
+    await expect(old.journal.markReviewed()).rejects.toThrow('unloading');
     // Obsidian discards the old plugin module on reload: a module-local map
     // would fail this test even though a same-module replacement could pass.
     vi.resetModules();
@@ -73,7 +94,7 @@ describe('plugin journal lifecycle', () => {
       const otherFixture = await fixture(), other = otherFixture.plugin();
       await other.onload(); other.onunload(); await waitForJournalShutdown(otherFixture.directory);
       work.finish.release(); await work.pending; await opening;
-      expect(next.journal.state.context).toEqual([work.item]);
+      expect(next.journal.state.operations).toEqual([await work.pending]);
       expect(await readFile(lock, 'utf8')).not.toBe(before);
       expect(open).toHaveBeenCalledOnce();
       const competing = new ReloadedStore(directory, root);
@@ -87,7 +108,7 @@ describe('plugin journal lifecycle', () => {
   it('cancels a replacement disabled while waiting and lets the next enable finish', async () => {
     const { directory, plugin } = await fixture();
     const old = plugin(); await old.onload();
-    const work = await blockedPin(old), lock = join(directory, 'state.lock');
+    const work = await blockedMutation(old), lock = join(directory, 'state.lock');
     const before = await readFile(lock, 'utf8'); old.onunload();
     const waiting = plugin(), waitingStart = waiting.onload();
     // Reaching the barrier is observable through the established directory,
@@ -99,7 +120,7 @@ describe('plugin journal lifecycle', () => {
       expect(await readFile(lock, 'utf8')).toBe(before);
       work.finish.release(); await work.pending; await waitingStart; await opening;
       expect(waiting.context).toBeUndefined(); expect(waiting.journal).toBeUndefined();
-      expect(next.journal.state.context).toEqual([work.item]);
+      expect(next.journal.state.operations).toEqual([await work.pending]);
     } finally {
       work.finish.release(); await work.pending; await opening.catch(() => undefined);
       next.onunload(); await waitForJournalShutdown(directory);
@@ -117,8 +138,8 @@ describe('plugin journal lifecycle', () => {
     try {
       finish.release(); await starting; await opening;
       expect(old.context).toBeUndefined(); expect(old.journal).toBeUndefined();
-      expect(next.journal.state.context).toEqual([]);
-      await expect(next.journal.addContext(pin('note', 'synthetic.md', 'text'))).resolves.toMatchObject({ path: 'synthetic.md' });
+      expect(next.journal.state.operations).toEqual([]);
+      await expect(next.journal.mutate({ kind: 'create', path: 'synthetic.md', content: 'text' })).resolves.toMatchObject({ path: 'synthetic.md' });
     } finally {
       finish.release(); await starting; await opening.catch(() => undefined);
       next.onunload(); await waitForJournalShutdown(directory);
@@ -136,8 +157,8 @@ describe('plugin journal lifecycle', () => {
     try {
       finish.release(); await starting; await opening;
       expect(old.context).toBeUndefined();
-      await expect(old.journal.removeContext()).rejects.toThrow('unloading');
-      expect(next.journal.state.context).toEqual([]);
+      await expect(old.journal.markReviewed()).rejects.toThrow('unloading');
+      expect(next.journal.state.operations).toEqual([]);
     } finally {
       finish.release(); await starting; await opening.catch(() => undefined);
       next.onunload(); await waitForJournalShutdown(directory);
@@ -160,7 +181,7 @@ describe('plugin journal lifecycle', () => {
     try {
       await expect(rejected.onload()).rejects.toThrow('already open');
       expect(await readFile(lock, 'utf8')).toBe(before);
-      await expect(owner.journal.addContext(pin('note', 'synthetic.md', 'text'))).resolves.toMatchObject({ path: 'synthetic.md' });
+      await expect(owner.journal.mutate({ kind: 'create', path: 'synthetic.md', content: 'text' })).resolves.toMatchObject({ path: 'synthetic.md' });
     } finally { owner.onunload(); await waitForJournalShutdown(directory); }
   });
 

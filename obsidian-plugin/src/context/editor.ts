@@ -1,13 +1,8 @@
 import { MarkdownView, type App, type Editor, type MarkdownFileInfo } from 'obsidian';
 import { parser } from '@lezer/markdown';
-import { hash, textOf, type ContextItem, type ContextReader } from '../model';
-import type { Journal } from '../provenance/journal';
-import { contextLinks, type ContextLink } from './links';
-import { headingRanges, pin, resolve, sameHeading, sectionAt, type Heading, type ResolvedContext } from './references';
-
-export const MAX_CONTEXT_CHARS = 500_000;
-const MAX_CONTEXT_TOTAL_CHARS = 2_000_000;
-const MAX_CONTEXT_ITEMS = 100;
+import { hash, type ContextReader } from '../model';
+import { contextLinks } from './links';
+import { headingRanges, sameHeading, sectionAt, type Heading } from './references';
 
 /** Parse the actual buffer, so delayed Obsidian metadata never points at old offsets. */
 export function currentHeadings(text: string): Heading[] {
@@ -35,29 +30,7 @@ export interface EditorTarget { path: string; from: number; to: number; fileHash
 const headingAt = (headings: Heading[], text: string, offset: number) => sectionAt(headings, Math.min(offset, Math.max(0, text.length - 1)));
 
 export class EditorContext {
-  private listeners = new Set<() => void>();
-  private disposers: (() => void)[] = [];
-  private reader: ContextReader;
-  private pinned: ContextItem[];
-
-  constructor(readonly app: App, readonly journal: Journal, reader?: ContextReader) {
-    this.pinned = journal.state.context;
-    this.reader = reader ?? (async path => {
-      const value = await journal.files.read(path);
-      if (!value) throw new Error('File is missing.');
-      return { text: textOf(value), source: 'disk' };
-    });
-    this.disposers.push(journal.subscribe(() => { this.pinned = journal.state.context; this.refresh(); }));
-    const vaultRefs = [app.vault.on('modify', () => this.refresh()), app.vault.on('delete', () => this.refresh()), app.vault.on('rename', () => this.refresh())];
-    for (const ref of vaultRefs) this.disposers.push(() => app.vault.offref(ref));
-    const editorRef = app.workspace.on('editor-change', () => this.refresh());
-    const leafRef = app.workspace.on('active-leaf-change', () => this.refresh());
-    this.disposers.push(() => app.workspace.offref(editorRef), () => app.workspace.offref(leafRef));
-  }
-
-  dispose() { for (const dispose of this.disposers.splice(0)) dispose(); this.listeners.clear(); }
-  subscribe(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
-  refresh() { for (const listener of this.listeners) listener(); }
+  constructor(readonly app: App, private readonly reader: ContextReader) {}
 
   private active(): MarkdownFileInfo & { file: NonNullable<MarkdownFileInfo['file']>; editor: Editor } {
     const info = this.app.workspace.activeEditor ?? this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -106,51 +79,6 @@ export class EditorContext {
     }
   }
 
-  async getContext(): Promise<(ResolvedContext & { links: ContextLink[] })[]> {
-    const items = this.pinned;
-    const reads = new Map<string, ReturnType<ContextReader>>();
-    let total = 0;
-    // One read per file per retrieval, with independent failure handling per pin.
-    return Promise.all(items.map(async item => {
-      try {
-        let read = reads.get(item.path);
-        if (!read) { read = this.reader(item.path); reads.set(item.path, read); }
-        const current = await read;
-        const resolved = resolve(item, current.text, item.kind === 'section' ? currentHeadings(current.text) : []);
-        const length = resolved.content?.length ?? 0;
-        if (length > MAX_CONTEXT_CHARS || total + length > MAX_CONTEXT_TOTAL_CHARS) throw new Error('Context size limit reached. Pin a smaller section or selection.');
-        total += length;
-        return { ...resolved, source: current.source, mtime: current.mtime,
-          links: resolved.content === undefined ? [] : contextLinks(current.text, item.path, this.app.metadataCache, resolved.from!, resolved.to!) };
-      } catch (error) {
-        return { id: item.id, path: item.path, kind: item.kind, headingPath: item.headingPath,
-          status: 'stale' as const, reason: error instanceof Error ? error.message : String(error), links: [] };
-      }
-    }));
-  }
-
-  private async add(kind: 'selection' | 'section' | 'note', path: string, text: string, from: number, to: number, headingPath?: string[]) {
-    if (this.pinned.length >= MAX_CONTEXT_ITEMS) throw new Error('Context basket is full. Remove an item before pinning another.');
-    if (to - from > MAX_CONTEXT_CHARS) throw new Error('This context is too large. Pin a smaller section or selection.');
-    return this.journal.addContext(pin(kind, path, text, from, to, headingPath));
-  }
-
-  async addSelection() {
-    const c = await this.captured();
-    return this.add('selection', c.path, c.text, c.from, c.to, headingAt(currentHeadings(c.text), c.text, c.from)?.path);
-  }
-  async addSection() {
-    const c = await this.captured(), section = headingAt(currentHeadings(c.text), c.text, c.cursorOffset);
-    if (!section) throw new Error('The cursor is not inside a Markdown heading section. Pin a selection or the entire note instead.');
-    if (currentHeadings(c.text).filter(h => sameHeading(h.path, section.path)).length !== 1) throw new Error('This heading path is ambiguous. Pin a selection or rename the duplicate heading.');
-    return this.add('section', c.path, c.text, section.from, section.to, section.path);
-  }
-  async addNote(path?: string) {
-    const selectedPath = path ?? this.app.workspace.getActiveFile()?.path;
-    if (!selectedPath) throw new Error('Open a note or choose a file first.');
-    const current = await this.reader(selectedPath);
-    return this.add('note', selectedPath, current.text, 0, current.text.length);
-  }
   async selectionTarget(): Promise<EditorTarget> {
     const c = await this.captured();
     if (c.from === c.to) throw new Error('Select text before replacing the selection.');
