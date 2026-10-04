@@ -6,6 +6,7 @@ import type { Operation, Snapshot } from '../model';
 import type { Journal } from '../provenance/journal';
 import { locationsForFile, operationLabel } from './changes';
 import { snapshotPage } from './paging';
+import { WIKISHIP_ICON_ID } from '../icon';
 
 export const CONTEXT_VIEW_TYPE = 'wikiship-context';
 export const CHANGES_VIEW_TYPE = 'wikiship-changes';
@@ -44,7 +45,7 @@ export class ContextView extends ItemView {
   constructor(leaf: WorkspaceLeaf, readonly context: EditorContext, readonly journal: Journal) { super(leaf); }
   getViewType() { return CONTEXT_VIEW_TYPE; }
   getDisplayText() { return 'WikiShip context'; }
-  getIcon() { return 'pin'; }
+  getIcon() { return WIKISHIP_ICON_ID; }
   async onOpen() {
     this.opened = true;
     this.contentEl.addClass('wikiship-view');

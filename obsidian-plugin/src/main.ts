@@ -3,6 +3,7 @@ import { getAPI, type LocalRestApiPublicApi } from 'obsidian-local-rest-api';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Journal } from './provenance/journal';
+import { registerWikiShipIcon, WIKISHIP_ICON_ID } from './icon';
 import { trackJournalShutdown, waitForJournalShutdown } from './provenance/lifecycle';
 import { AtomicStateStore, DEFAULT_EXCLUSIONS, PathPolicy } from './provenance/storage';
 import { ObsidianFiles } from './provenance/obsidian-files';
@@ -45,13 +46,14 @@ export default class WikiShip extends Plugin {
       if (this.stopped) return;
       this.context = new EditorContext(this.app, this.journal, path => files.readContext(path));
       this.register(() => this.context.dispose());
+      registerWikiShipIcon();
       this.registerView(CONTEXT_VIEW_TYPE, leaf => new ContextView(leaf, this.context, this.journal));
       this.registerView(CHANGES_VIEW_TYPE, leaf => new ChangesView(leaf, this.journal));
       const gutter = createReviewExtension(this.journal, id => new ChangeModal(this.app, this.journal, id).open());
       this.registerEditorExtension(gutter.extension);
       this.register(gutter.destroy);
       this.connection = this.addStatusBarItem();
-      this.addRibbonIcon('pin', 'WikiShip context', () => this.run(() => this.openView(CONTEXT_VIEW_TYPE)));
+      this.addRibbonIcon(WIKISHIP_ICON_ID, 'WikiShip context', () => this.run(() => this.openView(CONTEXT_VIEW_TYPE)));
       this.addCommands();
       this.addSettingTab(new WikiShipSettings(this.app, this));
       this.registerEvent(this.app.workspace.on('editor-menu', (menu, editor, info) => {

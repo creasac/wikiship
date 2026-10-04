@@ -12,7 +12,7 @@ import { pin } from '../src/context/references';
 // filesystem lock, and unload are the production implementations.
 vi.mock('obsidian', () => ({
   FileSystemAdapter: class { getBasePath() { return ''; } },
-  MarkdownView: class {}, TFile: class {}, Notice: vi.fn(), PluginSettingTab: class {}, Setting: class {},
+  addIcon: vi.fn(), MarkdownView: class {}, TFile: class {}, Notice: vi.fn(), PluginSettingTab: class {}, Setting: class {},
   Plugin: class {
     constructor(readonly app: App, readonly manifest: PluginManifest) {}
     async loadData() { return null; }
