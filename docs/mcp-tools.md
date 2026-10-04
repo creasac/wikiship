@@ -49,6 +49,10 @@ Pass `{}` as the arguments for a tool with no parameters; the bridge also suppli
 | `wikiship_context_remove` | `id` | Remove one pin. |
 | `wikiship_context_clear` | none | Clear all pins. |
 
+Selection responses (including `wikiship_get_editor_state.selection`) and resolved pinned items include a `links` array. Complete wikilinks/embeds and inline Markdown links within the returned passage retain their literal `raw` text. Each internal link includes `linkpath`, its original heading/block `subpath`, optional alias/label `displayText`, and the vault-relative `targetPath` returned by Obsidian's source-aware resolver. `status: "unresolved"` with `targetPath: null` means no target file was found; `resolved` confirms the file, not the existence of the heading/block. For example, `[[tmplt#Checklist|Template]]` can report `targetPath: "Templates/tmplt.md"`, `subpath: "#Checklist"`, and `displayText: "Template"` without changing the original text. These are paths, not external URLs.
+
+Link metadata is computed when context is read; it never opens or reads linked files and does not change saved pins or journal state. Stale pins return no link targets. Code examples, escaped links, external URLs, partial links, and Markdown reference-style links are not expanded.
+
 Selections resolve by unchanged anchored content; modified or ambiguous selections become stale. Sections resolve through a unique full heading path. Section content includes the heading and nested subsections until the next heading at the same or higher level. Stale items report a reason instead of silently returning a different passage. Pinned items persist while the human switches tabs and across plugin restarts.
 
 ## Reading mutation preconditions

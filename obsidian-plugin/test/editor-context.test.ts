@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { App } from 'obsidian';
-vi.mock('obsidian', () => ({ MarkdownView: class MarkdownView {} }));
 import { currentHeadings, EditorContext } from '../src/context/editor';
 import { pin } from '../src/context/references';
 import { Journal } from '../src/provenance/journal';
@@ -8,7 +7,8 @@ import { emptyState, type ContextReader } from '../src/model';
 
 function fakeApp() {
   const events = { on: () => ({}), offref: () => undefined };
-  return { vault: events, workspace: { ...events, activeEditor: null, getActiveViewOfType: () => null } } as unknown as App;
+  return { vault: events, metadataCache: { getFirstLinkpathDest: vi.fn(() => null) },
+    workspace: { ...events, activeEditor: null, getActiveViewOfType: () => null, getLeavesOfType: () => [] } } as unknown as App;
 }
 
 describe('current Markdown section locations', () => {
@@ -67,6 +67,66 @@ describe('context retrieval isolation', () => {
     const pinned = await context.addSection();
     expect(pinned.headingPath).toEqual(['Note', 'Last']);
     expect((await context.getContext())[0]?.content).toBe('## Last\ncontent');
+    context.dispose();
+  });
+});
+
+describe('link metadata on context responses', () => {
+  it('enriches selection, editor state and pins without reading targets or persisting changes', async () => {
+    const app = fakeApp(), path = 'Daily/source.md', content = 'Selected [[tmplt#Tasks|Template]]';
+    const text = `[[outside]]\n${content}\n[[also-outside]]`, from = text.indexOf(content), to = from + content.length;
+    const editor = { getValue: () => text, getCursor: (end?: string) => ({ line: 0, ch: end === 'from' ? from : to }), posToOffset: (position: { ch: number }) => position.ch };
+    Object.assign(app.workspace, { activeEditor: { file: { path }, editor } });
+    const resolver = vi.fn(() => ({ path: 'Templates/tmplt.md' }));
+    Object.assign(app.metadataCache, { getFirstLinkpathDest: resolver });
+    const state = emptyState(); state.context = [pin('selection', path, text, from, to)];
+    const save = vi.fn(), filesRead = vi.fn();
+    const journal = new Journal({ load: async () => state, save }, { read: filesRead, apply: async () => undefined });
+    await journal.load();
+    const reader = vi.fn(async (requested: string) => {
+      if (requested !== path) throw new Error('Unexpected target read');
+      return { text, source: 'editor' as const };
+    });
+    const context = new EditorContext(app, journal, reader), before = structuredClone(journal.state);
+    const selection = await context.getSelection(), editorState = await context.getEditorState(), pins = await context.getContext();
+    const expected = [{ raw: '[[tmplt#Tasks|Template]]', linkpath: 'tmplt', subpath: '#Tasks', displayText: 'Template', targetPath: 'Templates/tmplt.md', status: 'resolved' }];
+    expect(selection).toMatchObject({ content, from, to, links: expected });
+    expect(editorState.selection).toMatchObject({ content, from, to, links: expected });
+    expect(pins[0]).toMatchObject({ content, status: 'current', links: expected });
+    expect(resolver.mock.calls).toEqual(Array(3).fill(['tmplt', path]));
+    expect(reader.mock.calls).toEqual(Array(3).fill([path]));
+    expect(filesRead).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(journal.state).toEqual(before);
+    context.dispose();
+  });
+
+  it('uses each pin source and recomputes destinations after metadata changes', async () => {
+    const app = fakeApp(), content = '[[tmplt]]', state = emptyState();
+    state.context = ['Daily/source.md', 'Work/source.md'].map(path => pin('note', path, content));
+    const resolver = vi.fn((_path: string, source: string) => ({ path: source.replace('source', 'tmplt') }) as { path: string } | null);
+    Object.assign(app.metadataCache, { getFirstLinkpathDest: resolver });
+    const save = vi.fn(), journal = new Journal({ load: async () => state, save }, { read: async () => null, apply: async () => undefined });
+    await journal.load();
+    const context = new EditorContext(app, journal, async () => ({ text: content, source: 'disk' }));
+    expect((await context.getContext()).map(item => item.links[0]?.targetPath)).toEqual(['Daily/tmplt.md', 'Work/tmplt.md']);
+    resolver.mockReturnValue(null);
+    expect((await context.getContext()).map(item => item.links[0]?.status)).toEqual(['unresolved', 'unresolved']);
+    expect(save).not.toHaveBeenCalled();
+    context.dispose();
+  });
+
+  it('does not resolve links from a stale selection snapshot', async () => {
+    const app = fakeApp(), state = emptyState(); state.context = [pin('selection', 'source.md', '[[old]]')];
+    const resolver = vi.fn(); Object.assign(app.metadataCache, { getFirstLinkpathDest: resolver });
+    const journal = new Journal({ load: async () => state, save: async () => undefined }, { read: async () => null, apply: async () => undefined });
+    await journal.load();
+    const context = new EditorContext(app, journal, async () => ({ text: '[[new]]', source: 'editor' }));
+    const result = (await context.getContext())[0]!;
+    expect(result.status).toBe('stale');
+    expect(result.content).toBeUndefined();
+    expect(result.links).toEqual([]);
+    expect(resolver).not.toHaveBeenCalled();
     context.dispose();
   });
 });

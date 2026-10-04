@@ -2,6 +2,7 @@ import { MarkdownView, type App, type Editor, type MarkdownFileInfo } from 'obsi
 import { parser } from '@lezer/markdown';
 import { hash, textOf, type ContextItem, type ContextReader } from '../model';
 import type { Journal } from '../provenance/journal';
+import { contextLinks, type ContextLink } from './links';
 import { headingRanges, pin, resolve, sameHeading, sectionAt, type Heading, type ResolvedContext } from './references';
 
 export const MAX_CONTEXT_CHARS = 500_000;
@@ -83,7 +84,8 @@ export class EditorContext {
   async getSelection() {
     const captured = await this.captured();
     const { text, ...state } = captured;
-    return { ...state, content: text.slice(state.from, state.to), empty: state.from === state.to, offsets: 'UTF-16' as const };
+    return { ...state, content: text.slice(state.from, state.to), empty: state.from === state.to, offsets: 'UTF-16' as const,
+      links: contextLinks(text, state.path, this.app.metadataCache, state.from, state.to) };
   }
 
   async getEditorState() {
@@ -95,7 +97,8 @@ export class EditorContext {
       const state = await this.captured();
       const heading = headingAt(currentHeadings(state.text), state.text, state.cursorOffset);
       return { activeFile: state.path, fileHash: state.fileHash, cursor: state.cursor,
-        selection: { from: state.from, to: state.to, content: state.text.slice(state.from, state.to) },
+        selection: { from: state.from, to: state.to, content: state.text.slice(state.from, state.to),
+          links: contextLinks(state.text, state.path, this.app.metadataCache, state.from, state.to) },
         section: heading ?? null, openMarkdownTabs, offsets: 'UTF-16', source: state.source };
     } catch (error) {
       return { activeFile: this.app.workspace.getActiveFile()?.path ?? null, cursor: null, selection: null,
@@ -103,7 +106,7 @@ export class EditorContext {
     }
   }
 
-  async getContext(): Promise<ResolvedContext[]> {
+  async getContext(): Promise<(ResolvedContext & { links: ContextLink[] })[]> {
     const items = this.pinned;
     const reads = new Map<string, ReturnType<ContextReader>>();
     let total = 0;
@@ -117,10 +120,11 @@ export class EditorContext {
         const length = resolved.content?.length ?? 0;
         if (length > MAX_CONTEXT_CHARS || total + length > MAX_CONTEXT_TOTAL_CHARS) throw new Error('Context size limit reached. Pin a smaller section or selection.');
         total += length;
-        return { ...resolved, source: current.source, mtime: current.mtime };
+        return { ...resolved, source: current.source, mtime: current.mtime,
+          links: resolved.content === undefined ? [] : contextLinks(current.text, item.path, this.app.metadataCache, resolved.from!, resolved.to!) };
       } catch (error) {
         return { id: item.id, path: item.path, kind: item.kind, headingPath: item.headingPath,
-          status: 'stale' as const, reason: error instanceof Error ? error.message : String(error) };
+          status: 'stale' as const, reason: error instanceof Error ? error.message : String(error), links: [] };
       }
     }));
   }
