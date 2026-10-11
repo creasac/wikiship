@@ -18,6 +18,15 @@ export class ObsidianFiles implements WorkspaceFiles {
     if (content.byteLength > MAX_FILE_BYTES) throw new Error('File exceeds 5 MiB.');
     return snapshot(content);
   }
+  async trash(path: string, expected: Snapshot): Promise<void> {
+    const current = await this.read(path);
+    if (!current || current.hash !== expected.hash) throw new MutationPreconditionError('Conflict: file changed before its confirmed deletion could be moved to trash.');
+    this.assertEditors(path, expected);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) throw new MutationPreconditionError('Conflict: the file is no longer available to move to Obsidian trash.');
+    // `false` selects Obsidian's configured vault trash, not permanent deletion.
+    await this.app.vault.trash(file, false);
+  }
   private editors(path: string) {
     return this.app.workspace.getLeavesOfType('markdown').flatMap(leaf => {
       const view = leaf.view;

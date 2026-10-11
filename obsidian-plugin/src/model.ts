@@ -44,7 +44,7 @@ export function isTextBoundary(text: string, offset: number): boolean {
 export const operationSchema = z.object({
   id: z.string().min(1), timestamp: z.string(), kind: z.enum(['edit', 'create', 'delete', 'move']),
   path: z.string().min(1), target: z.string().min(1).optional(), before: snapshotSchema.nullable(), after: snapshotSchema.nullable(),
-  status: z.enum(['prepared', 'applied', 'failed', 'uncertain', 'reverting', 'reverted']),
+  status: z.enum(['prepared', 'applied', 'failed', 'uncertain', 'reverting', 'reverted', 'pending-delete', 'committing-delete']),
   review: z.enum(['unreviewed', 'reviewed']), agent: z.string().optional(), session: z.string().optional(),
   from: z.number().int().nonnegative().optional(), to: z.number().int().nonnegative().optional(),
   error: z.string().optional(),
@@ -74,6 +74,8 @@ export interface WorkspaceFiles {
   read(path: string): Promise<Snapshot | null>;
   // The adapter must recheck content and any open editors at the point of writing.
   apply(op: Operation, reverse: boolean): Promise<void>;
+  /** Move a confirmed pending deletion into Obsidian's trash, after rechecking its hash. */
+  trash(path: string, expected: Snapshot): Promise<void>;
 }
 export type ContextReader = (path: string) => Promise<{ text: string; mtime?: number; source: 'editor' | 'disk' }>;
 

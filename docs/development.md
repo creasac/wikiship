@@ -20,9 +20,9 @@ The Local REST API npm package supplies only its small extension helper and publ
 The tests cover:
 
 - Live selections, source-aware links, unique section ancestry, real Markdown heading parsing, and editor-state races.
-- Journal persistence through edits, review, revert, and restart; unapproved MCP tools are rejected by the bridge.
+- Journal persistence through edits, pending deletes, undo, clear, and restart; unapproved MCP tools are rejected by the bridge.
 - MCP schema publication and calls through an actual MCP SDK client, plus the bridge's fixed allowlist and rejection of untracked writes.
-- Write-ahead intent, concurrent mutation serialization, snapshot integrity, deletion recovery, binary preservation, and safe inverse operations.
+- Write-ahead intent, concurrent mutation serialization, snapshot integrity, staged deletion to Obsidian trash, binary preservation, and safe session undo.
 - Persistence failures before/after file writes, restart recovery, uncertain partial moves, inverse recovery direction, shutdown drain, and corrupted saved state.
 - Path traversal, symlinks, journal writer locks, external journal changes, and actual atomic store persistence in temporary directories.
 - Full process exit and forced termination, recovery of interrupted mutation intent, six simultaneous dead-owner reclaimers, delayed reclaimers, old-plugin contention, and preservation of live/foreign/unverifiable locks in synthetic subprocess fixtures.
@@ -51,7 +51,7 @@ The fixture uses local HTTP with a randomly generated API key solely inside the 
 
 ### Native acceptance run
 
-The harness checks live selection and section metadata, exact editor updates, gutter and diff review, conflict-safe revert, file operations, paged snapshot review, journal persistence, host reload, the 19-tool bridge, and the six-command palette. Run it in a disposable profile before claiming native verification for a revision.
+The harness checks live selection and section metadata, exact editor updates, the auto-opened change panel and diff, conflict-safe undo, staged deletion and Obsidian trash, paged review, journal clearing, host reload, the 19-tool bridge, and the six-command palette. Run it in a disposable profile before claiming native verification for a revision.
 
 The harness writes `artifacts/obsidian-acceptance.json` and `artifacts/obsidian-acceptance.png`. Generated local artifacts are not committed.
 
@@ -62,9 +62,9 @@ Use a disposable ordinary project folder containing Markdown and source files. I
 1. Select two paragraphs in note A. Fetch live editor state and verify the exact selection, offsets, hash, and link metadata. Switch to note B; the next read must describe B.
 2. Put the cursor in a section in B. Verify its heading path/range; read its saved body with `wikiship_get_file_state` and compare hashes. Move the selection/cursor after reading and verify a mutation using the old target is refused.
 3. Change B through a wikiship tool. Verify immediate editor update, subtle gutter marker, sidebar entry, and literal before/after diff.
-4. Mark reviewed, then revert. Confirm review status does not prevent a safe revert.
-5. Repeat an AI edit, then type a human change before reverting. Verify a conflict and preservation of the human edit.
-6. Create, move, rename, and delete a file through MCP; inspect and restore it. Repeat delete/restore with a binary file within the 5 MiB limit.
+4. Undo a change and verify the record disappears. Mark a session done and clear it; verify files stay changed and the journal no longer contains those snapshots.
+5. Repeat an AI edit, then type a human change before undoing. Verify a conflict and preservation of the human edit.
+6. Stage a delete through MCP. Verify the file stays in the vault during review, undo leaves it in place, and marking done moves it to Obsidian trash. Repeat with a binary file within the 5 MiB limit.
 7. Verify ordinary typing and direct external writes create no AI journal entry.
 8. Disable/re-enable the host and wikiship in either order. Verify tools are cleaned up and registered once, and the journal survives.
 9. Verify the palette contains exactly the six commands listed in the [README](../README.md). Use your configured MCP client directly.
@@ -77,4 +77,4 @@ During disable/re-enable in the same Obsidian renderer, startup waits for the pr
 
 If plugin startup rejects `state.json`, preserve it and repair from a known backup; do not replace it with an empty object. After a process exits before asynchronous cleanup finishes, wikiship automatically recovers a lock only when its record names this host and the OS reports that its PID no longer exists. A recovery guard serializes competing reclaimers; live PIDs (including possibly reused PIDs), foreign hosts, permission errors, corrupt records, and symlinks fail closed. Preserve unverifiable locks for inspection. Never delete a lock while another instance may be using it. Keep the journal and its locks local to one host; synchronization of plugin state is unsupported. Filesystems without the required exclusive hard-link/directory operations fail closed.
 
-The journal retains complete snapshots, including deleted content. There is no automatic pruning or journal sync merge in v1. A later retention/export feature should preserve recovery data until the user explicitly discards it.
+Pending review records retain complete file contents, including deleted content, until explicitly undone or cleared. There is no automatic expiry or journal sync merge in v1. Clearing removes the WikiShip review records; deleted files accepted by the user are in Obsidian trash.

@@ -18,7 +18,7 @@ vi.mock('obsidian', () => ({
     async loadData() { return null; }
     register() {} registerView() {} registerEditorExtension() {} registerEvent() {}
     addRibbonIcon() {} addCommand() {} addSettingTab() {}
-    addStatusBarItem() { return { setText() {} }; }
+    addStatusBarItem() { return { setText() {}, addClass() {}, addEventListener() {}, setAttribute() {} }; }
   },
 }));
 vi.mock('obsidian-local-rest-api', () => ({ getAPI: vi.fn() }));
@@ -26,6 +26,7 @@ vi.mock('../src/provenance/obsidian-files', () => ({ ObsidianFiles: class {
   private files = new Map<string, Snapshot>();
   async read(path: string) { return this.files.get(path) ?? null; }
   async apply(op: Operation) { if (op.after) this.files.set(op.path, op.after); else this.files.delete(op.path); }
+  async trash(path: string) { this.files.delete(path); }
 } }));
 vi.mock('../src/context/editor', () => ({ EditorContext: class {} }));
 vi.mock('../src/review/views', () => ({ ChangesView: class {}, ChangeModal: class {}, RevertFileModal: class {}, CHANGES_VIEW_TYPE: 'changes', nextUnreviewed: vi.fn() }));
@@ -38,9 +39,11 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'wikiship-lifecycle-')); roots.push(root);
   const directory = join(root, '.obsidian/plugins/wikiship');
   const adapter = new FileSystemAdapter(); vi.spyOn(adapter, 'getBasePath').mockReturnValue(root);
-  const app = { vault: { adapter, configDir: '.obsidian', on: vi.fn() }, workspace: { on: vi.fn(), onLayoutReady: vi.fn() } } as unknown as App;
+  const leaf = { setViewState: vi.fn(), view: {} };
+  const workspace = { on: vi.fn(), onLayoutReady: vi.fn(), getLeavesOfType: vi.fn(() => []), getRightLeaf: vi.fn(() => leaf), revealLeaf: vi.fn() };
+  const app = { vault: { adapter, configDir: '.obsidian', on: vi.fn() }, workspace } as unknown as App;
   const plugin = (Ctor = WikiShip) => new Ctor(app, { id: 'wikiship' } as PluginManifest);
-  return { root, directory, plugin };
+  return { root, directory, plugin, workspace, leaf };
 }
 afterEach(async () => { vi.restoreAllMocks(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 
@@ -60,12 +63,25 @@ describe('plugin journal lifecycle', () => {
     try {
       expect(commands.mock.calls.map(([command]) => ({ id: command.id, name: command.name }))).toEqual([
         { id: 'open-changes', name: 'Show AI Changes' },
-        { id: 'next-change', name: 'Next unreviewed AI change' },
-        { id: 'mark-all-reviewed', name: 'Mark all AI changes reviewed' },
-        { id: 'revert-file', name: 'Revert all AI changes in current file' },
+        { id: 'next-change', name: 'Next AI change to review' },
+        { id: 'complete-changes', name: 'Mark all AI changes done and clear' },
+        { id: 'undo-changes', name: 'Undo all AI changes' },
         { id: 'recover', name: 'Recover interrupted operations' },
         { id: 'reconnect-mcp', name: 'Reconnect Local REST API' },
       ]);
+    } finally { instance.onunload(); await waitForJournalShutdown(directory); }
+  });
+
+  it('opens the review side panel on the first queued change and exposes a clickable status item', async () => {
+    const { directory, plugin, workspace, leaf } = await fixture(), instance = plugin();
+    await instance.onload();
+    try {
+      await instance.journal.mutate({ kind: 'create', path: 'first.md', content: 'first' });
+      await vi.waitFor(() => expect(leaf.setViewState).toHaveBeenCalledOnce());
+      expect(leaf.setViewState).toHaveBeenCalledWith({ type: 'changes', active: true });
+      expect(workspace.revealLeaf).toHaveBeenCalledOnce();
+      await instance.journal.mutate({ kind: 'create', path: 'second.md', content: 'second' });
+      expect(leaf.setViewState).toHaveBeenCalledOnce();
     } finally { instance.onunload(); await waitForJournalShutdown(directory); }
   });
 

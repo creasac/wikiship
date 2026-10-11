@@ -73,13 +73,12 @@ async function command(id) {
   }, id);
 }
 async function state() { return page.evaluate(() => app.plugins.plugins.wikiship.journal.state); }
-async function waitOperation(id, status) { await waitFor(async () => (await state()).operations.find(op => op.id === id)?.status === status, `${id} ${status}`); }
 async function openChange(id) {
   await page.evaluate(async id => {
     const wiki = app.plugins.plugins.wikiship;
     const op = wiki.journal.state.operations.find(op => op.id === id);
-    // A command opens the real review UI for the next unreviewed operation.
-    if (!op || op.review !== 'unreviewed') throw new Error('Expected an unreviewed fixture operation.');
+    // The review command opens the next queued operation.
+    if (!op || op.status === 'reverted') throw new Error('Expected a queued fixture operation.');
     app.commands.executeCommandById('wikiship:next-change');
   }, id);
   await page.locator('.wikiship-review-modal').waitFor();
@@ -156,7 +155,7 @@ try {
   assert.equal(section.fileHash, editorState.fileHash);
   assert.equal(section.content, '## Storage\nUse ordinary local files.\n\n');
   const commands = await page.evaluate(() => Object.keys(app.commands.commands).filter(id => id.startsWith('wikiship:')));
-  assert.deepEqual(commands.sort(), ['open-changes', 'next-change', 'mark-all-reviewed', 'revert-file', 'recover', 'reconnect-mcp'].map(id => `wikiship:${id}`).sort());
+  assert.deepEqual(commands.sort(), ['open-changes', 'next-change', 'complete-changes', 'undo-changes', 'recover', 'reconnect-mcp'].map(id => `wikiship:${id}`).sort());
   passed('Live selection and cursor section follow the active note; the six review and recovery commands are registered');
 
   const edited = await call('wikiship_patch_section', { path: 'B.md', expectedHash: section.fileHash,
@@ -172,14 +171,11 @@ try {
   assert.match(await page.locator('.wikiship-diff').innerText(), /AI writes are recorded/);
   assert.match(await page.locator('.wikiship-diff').innerText(), /Use ordinary local files/);
   await page.screenshot({ path: join(output, 'obsidian-acceptance.png'), fullPage: true });
-  await page.getByRole('button', { name: 'Mark reviewed', exact: true }).click();
-  await waitFor(async () => (await state()).operations.find(op => op.id === edited.id)?.review === 'reviewed', 'marked reviewed');
-  assert.equal(await page.locator('.wikiship-gutter-marker').count(), 0);
-  await page.getByRole('button', { name: 'Revert this change', exact: true }).click();
-  await waitOperation(edited.id, 'reverted');
+  await page.getByRole('button', { name: 'Undo this change', exact: true }).click();
+  await waitFor(async () => !(await state()).operations.some(op => op.id === edited.id), 'change undone and cleared');
   assert.equal(await readFile(join(vault, 'B.md'), 'utf8'), noteB);
   await page.keyboard.press('Escape');
-  passed('Live editor, gutter, AI Changes, literal before/after diff, mark reviewed, and UI revert work');
+  passed('Live editor, auto-opened AI Changes, literal before/after diff, undo, and queue clearing work');
 
   await openNote('B.md', 'Use ordinary');
   const fileState = await call('wikiship_get_file_state', { path: 'B.md' });
@@ -190,13 +186,14 @@ try {
     editor.setCursor({ line: 0, ch: 0 }); editor.replaceRange('Human typed afterward.\n', { line: 0, ch: 0 });
   });
   await openChange(conflictOp.id);
-  await page.getByRole('button', { name: 'Revert this change', exact: true }).click();
+  await page.getByRole('button', { name: 'Undo this change', exact: true }).click();
   await page.locator('.notice').filter({ hasText: 'Conflict' }).first().waitFor();
   assert.equal((await state()).operations.find(op => op.id === conflictOp.id).status, 'applied');
   assert.match(await page.evaluate(() => app.workspace.activeEditor.editor.getValue()), /Human typed afterward/);
-  await page.getByRole('button', { name: 'Mark reviewed', exact: true }).click();
+  await page.getByRole('button', { name: 'Mark session done & clear', exact: true }).click();
+  await waitFor(async () => !(await state()).operations.some(op => op.id === conflictOp.id), 'conflicting change cleared');
   await page.keyboard.press('Escape');
-  passed('A newer human editor change blocks revert and remains intact');
+  passed('A newer human editor change blocks undo and remains intact; the user can explicitly clear its record');
 
   const created = await call('wikiship_create_file', { path: 'AI-created.md', content: 'Created through the real MCP host.\n', agent: 'native-smoke' });
   const moved = await call('wikiship_move_file', { path: 'AI-created.md', target: 'AI-moved.md', expectedHash: created.afterHash });
@@ -206,10 +203,12 @@ try {
   await deletedGroup.locator('.wikiship-change-item button').first().click();
   await page.locator('.wikiship-review-modal .wikiship-diff-removed').first().waitFor();
   assert.match(await page.locator('.wikiship-diff').innerText(), /Created through the real MCP host/);
-  await page.getByRole('button', { name: 'Revert this change', exact: true }).click();
-  await waitOperation(deleted.id, 'reverted');
-  await page.keyboard.press('Escape');
+  assert.equal(deleted.status, 'pending-delete');
   assert.equal(await readFile(join(vault, 'AI-moved.md'), 'utf8'), 'Created through the real MCP host.\n');
+  await page.getByRole('button', { name: 'Mark session done & clear', exact: true }).click();
+  await waitFor(async () => !(await state()).operations.some(op => op.id === deleted.id), 'delete session cleared');
+  await page.keyboard.press('Escape');
+  await assert.rejects(readFile(join(vault, 'AI-moved.md'), 'utf8'), { code: 'ENOENT' });
   const code = await call('wikiship_get_file_state', { path: 'src/answer.ts' });
   const changedCode = await call('wikiship_replace_range', { path: 'src/answer.ts', expectedHash: code.fileHash,
     from: 0, to: code.totalLength, content: 'export const answer = 42;\n' });
@@ -231,11 +230,11 @@ try {
   assert.match(await beforePanel.locator('.wikiship-source').innerText(), /<b data-test="literal">Before final line<\/b>/);
   assert.match(await afterPanel.locator('.wikiship-source').innerText(), /<b data-test="literal">After final line from AI<\/b>/);
   assert.equal(await page.locator('.wikiship-review-modal [data-test="literal"]').count(), 0);
-  await page.getByRole('button', { name: 'Revert this change', exact: true }).click();
-  await waitOperation(largeOperation.id, 'reverted');
+  await page.getByRole('button', { name: 'Undo this change', exact: true }).click();
+  await waitFor(async () => !(await state()).operations.some(op => op.id === largeOperation.id), 'large change undone and cleared');
   assert.equal(await readFile(join(vault, 'large-review.md'), 'utf8'), largeNote);
   await page.keyboard.press('Escape');
-  passed('Large snapshot last pages expose exact literal before/after EOF changes and safely revert');
+  passed('Large change last pages expose exact literal before/after EOF changes and safely undo');
 
   await openNote('B.md');
   const beforeReload = await state();

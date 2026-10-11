@@ -23,6 +23,10 @@ class MemoryFiles implements WorkspaceFiles {
   put(path: string, content: string | Uint8Array) { this.content.set(path, typeof content === 'string' ? textSnapshot(content) : snapshot(content)); }
   text(path: string) { return this.content.get(path)?.data; }
   async read(path: string) { return structuredClone(this.content.get(path) ?? null); }
+  async trash(path: string, expected: Snapshot) {
+    if ((await this.read(path))?.hash !== expected.hash) throw new MutationPreconditionError('Conflict: changed before trash.');
+    this.content.delete(path);
+  }
   async apply(op: Operation, reverse: boolean) {
     // Exercise the journal/adapter contract: durable intent and a second compare
     // immediately before mutation, including the destination of a move.
@@ -134,7 +138,7 @@ describe('AI provenance and safe inverse operations', () => {
     expect(journal.state.operations[0]?.status).toBe('failed');
     expect(files.text('note.md')).toBe('AI text');
   });
-  it('reverts creation and restores exact binary deletion bytes', async () => {
+  it('undoes creation and stages binary deletion until confirmation moves it to trash', async () => {
     const { journal, files } = await setup();
     const create = await journal.mutate({ kind: 'create', path: 'new.md', content: 'new file' });
     await journal.revert(create.id);
@@ -143,16 +147,43 @@ describe('AI provenance and safe inverse operations', () => {
     files.put('diagram.png', binary);
     const remove = await journal.mutate({ kind: 'delete', path: 'diagram.png', expectedHash: hash(binary) });
     expect(remove.before?.encoding).toBe('base64');
-    expect(await files.read('diagram.png')).toBeNull();
-    await journal.revert(remove.id);
+    expect(remove.status).toBe('pending-delete');
     expect(bytes((await files.read('diagram.png'))!)).toEqual(Buffer.from(binary));
+    await journal.undo(remove.id);
+    expect(bytes((await files.read('diagram.png'))!)).toEqual(Buffer.from(binary));
+    const confirmed = await journal.mutate({ kind: 'delete', path: 'diagram.png', expectedHash: hash(binary) });
+    await journal.completeSession(confirmed.session);
+    expect(await files.read('diagram.png')).toBeNull();
+    expect(journal.state.operations.some(op => op.id === confirmed.id)).toBe(false);
   });
-  it('refuses to restore a deletion over a new human file', async () => {
+  it('refuses to confirm a staged deletion after a human changes its file', async () => {
     const { journal, files } = await setup();
     const op = await journal.mutate({ kind: 'delete', path: 'note.md', expectedHash: hash('original') });
     files.put('note.md', 'new human file');
-    await expect(journal.revert(op.id)).rejects.toThrow('Conflict');
+    await expect(journal.completeSession(op.session)).rejects.toThrow('Conflict');
+    await journal.undo(op.id);
     expect(files.text('note.md')).toBe('new human file');
+  });
+  it('undoes a session newest first and leaves other sessions untouched', async () => {
+    const { journal, files } = await setup();
+    await journal.mutate({ kind: 'edit', path: 'note.md', expectedHash: hash('original'), from: 0, to: 8, content: 'session text', session: 'lesson-1' });
+    await journal.mutate({ kind: 'create', path: 'other.md', content: 'keep', session: 'lesson-2' });
+    const result = await journal.undoSession('lesson-1');
+    expect(result).toEqual({ undone: 1 });
+    expect(files.text('note.md')).toBe('original');
+    expect(files.text('other.md')).toBe('keep');
+    expect(journal.state.operations.map(op => op.session)).toEqual(['lesson-2']);
+  });
+  it('clears all review snapshots and opaque legacy journal data after the final change', async () => {
+    const { journal, files, store } = await setup();
+    await journal.close();
+    store.saved = { ...emptyState(), context: [{ old: 'saved content' }], legacy: { retained: true } } as State;
+    const restarted = new Journal(store, files); await restarted.load();
+    await restarted.mutate({ kind: 'create', path: 'new.md', content: 'temporary review data' });
+    expect(JSON.stringify(store.saved)).toContain('temporary review data');
+    await restarted.completeAll();
+    expect(store.saved).toEqual(emptyState());
+    expect(restarted.state.operations).toEqual([]);
   });
   it('reverts moves but never overwrites a new file at the old path', async () => {
     const { journal, files } = await setup();
@@ -294,14 +325,16 @@ describe('write-ahead persistence and interruption recovery', () => {
     await journal.recover();
     expect(journal.state.operations[0]?.status).toBe('applied');
   });
-  it('retains the binary preimage across deletion finalization failure and restart', async () => {
+  it('retains a staged binary deletion after trash failure and restart', async () => {
     const { journal, files, store } = await setup();
     const binary = new Uint8Array([0, 255, 2, 128, 254]);
-    files.put('binary.dat', binary); store.failAt = 2;
-    await expect(journal.mutate({ kind: 'delete', path: 'binary.dat', expectedHash: hash(binary) })).rejects.toThrow('finalization failed');
+    files.put('binary.dat', binary);
+    await journal.mutate({ kind: 'delete', path: 'binary.dat', expectedHash: hash(binary) });
+    vi.spyOn(files, 'trash').mockRejectedValueOnce(new Error('Trash unavailable'));
+    await expect(journal.completeAll()).rejects.toThrow('Trash unavailable');
     const restarted = new Journal(store, files); await restarted.load();
-    expect(restarted.state.operations[0]?.status).toBe('applied');
-    await restarted.revert(restarted.state.operations[0]!.id);
+    expect(restarted.state.operations[0]?.status).toBe('pending-delete');
+    await restarted.undoAll();
     expect(bytes((await files.read('binary.dat'))!)).toEqual(Buffer.from(binary));
   });
   it('keeps an interrupted partial move uncertain and never deletes either copy during recovery', async () => {

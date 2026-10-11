@@ -13,15 +13,15 @@ The supplied workspace was empty. Its `.git` mount initially had no repository m
 1. Plugin skeleton and live context: current editor selection/cursor/file, section metadata, source-aware link resolution, and guarded editor targets.
 2. MCP extension: validated tool schemas, version/load handling, authenticated host transport, allowlisted client adapter, real MCP SDK client verification.
 3. Provenance: serialized operations; durable intent before mutation; before/after snapshots and hashes; guarded create/edit/delete/move; restart recovery and explicit uncertain states.
-4. Review: sidebar, before/after diff, review state, conservative revert and file-wide revert; subtle interactive CodeMirror gutter markers. Never write markers into notes.
+4. Review queue: auto-opening side panel, session grouping, before/after diff, staged deletion approval, guarded undo, and explicit clear that removes pending records. Never write markers into notes.
 5. Client setup and acceptance: client-neutral MCP connection and live-context instructions; build/type checks; safety tests; exact six-command palette; native Obsidian smoke test where available.
 
 ## Safety decisions
 
 - Only calls through wikiship mutation tools receive AI attribution. Watcher events are not a source of attribution.
 - Require expected file SHA-256 for edits/deletes/moves; create must assert absence. Never overwrite a destination.
-- For v1, reverting an edit requires the entire file to match the recorded after hash. This may refuse unrelated later human edits, but preserves all newer work.
-- Persist full snapshots locally in plugin data; do not prune unreviewed or recoverable records automatically. Fail closed if journal persistence fails.
+- Undo requires the current file to match the recorded after hash. This may refuse unrelated later human edits, but preserves all newer work.
+- Keep before/after content only in the pending review queue. Explicit undo or mark-done clears it; do not retain a WikiShip history after clearing. Fail closed if journal persistence fails.
 - Capture current selection offsets, editor contents, and hashes; recheck them before writing. Locate sections by unique heading paths and refuse ambiguous headings.
 - Block traversal, symlinks, vault configuration/internal paths, and noisy generated directories through wikiship only. Do not edit the user's Obsidian configuration.
 

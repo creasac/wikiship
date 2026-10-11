@@ -3,9 +3,14 @@
 .wikiship-view h5 { margin: var(--size-4-2) 0; }
 .wikiship-actions { display: flex; flex-wrap: wrap; gap: var(--size-4-2); margin: var(--size-4-2) 0; }
 .wikiship-actions button { font-size: var(--font-ui-small); }
+.wikiship-pending-banner { border-left: 3px solid var(--interactive-accent); background: var(--background-secondary); padding: var(--size-4-2) var(--size-4-3); margin: var(--size-4-2) 0; font-size: var(--font-ui-small); }
+.wikiship-delete-notice { border-left: 3px solid var(--text-warning); padding: var(--size-4-2) var(--size-4-3); background: var(--background-secondary); }
+.wikiship-statusbar { cursor: pointer; }
 .wikiship-muted { color: var(--text-muted); font-size: var(--font-ui-small); }
 .wikiship-path { overflow-wrap: anywhere; }
 .wikiship-file-group { border-top: 1px solid var(--background-modifier-border); padding: var(--size-4-3) 0; }
+.wikiship-session-group { border-top: 1px solid var(--background-modifier-border); padding: var(--size-4-3) 0; }
+.wikiship-session-group .wikiship-file-group { padding: var(--size-4-2) 0; }
 .wikiship-change-item { padding: var(--size-4-2) 0; }
 .wikiship-text-button { background: transparent !important; box-shadow: none !important; border: none; padding: 0; height: auto; text-align: left; white-space: normal; overflow-wrap: anywhere; color: var(--text-normal); }
 .wikiship-text-button:hover { color: var(--text-accent); text-decoration: underline; }

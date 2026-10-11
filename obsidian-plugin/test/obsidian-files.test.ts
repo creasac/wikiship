@@ -35,6 +35,7 @@ async function fixture() {
       create: async (path: string, value: string) => { await fs.writeFile(join(root, path), value, { flag: 'wx' }); return track(path); },
       createBinary: async (path: string, value: ArrayBuffer) => { await fs.writeFile(join(root, path), new Uint8Array(value), { flag: 'wx' }); return track(path); },
       delete: async (file: TFile) => { await adapter.remove(file.path); tracked.delete(file.path); },
+      trash: async (file: TFile, system: boolean) => { expect(system).toBe(false); await adapter.remove(file.path); tracked.delete(file.path); },
       rename: async (file: TFile, target: string) => { const source = file.path; await adapter.rename(source, target); tracked.delete(source); file.path = target; tracked.set(target, file); },
       process: async (file: TFile, update: (text: string) => string) => adapter.process(file.path, update),
     },
@@ -82,12 +83,15 @@ describe('Obsidian file adapter boundaries with real temporary files', () => {
   });
 
   it('restores exact binary bytes through the adapter after a tracked deletion', async () => {
-    const { root, journal } = await fixture(), binary = Buffer.from([0, 255, 254, 128, 13, 10]);
+    const { root, journal, tracked } = await fixture(), binary = Buffer.from([0, 255, 254, 128, 13, 10]);
     await fs.writeFile(join(root, 'image.bin'), binary);
+    const file = Object.assign(Object.create(TFile.prototype) as TFile, { path: 'image.bin', stat: { mtime: 0 } });
+    tracked.set('image.bin', file);
     const op = await journal.mutate({ kind: 'delete', path: 'image.bin', expectedHash: hash(binary) });
+    await expect(fs.readFile(join(root, 'image.bin'))).resolves.toEqual(binary);
+    expect(op.status).toBe('pending-delete');
+    await journal.completeAll();
     await expect(fs.stat(join(root, 'image.bin'))).rejects.toMatchObject({ code: 'ENOENT' });
-    await journal.revert(op.id);
-    expect(await fs.readFile(join(root, 'image.bin'))).toEqual(binary);
-    expect(journal.state.operations[0]!.status).toBe('reverted');
+    expect(journal.state.operations).toEqual([]);
   });
 });

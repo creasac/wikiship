@@ -18,7 +18,7 @@ const offset = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const content = z.string().max(2_000_000).describe('Literal replacement text.');
 const identity = {
   agent: z.string().min(1).max(128).optional().describe('Optional self-reported client identity; not authenticated identity.'),
-  session: z.string().min(1).max(128).optional().describe('Optional self-reported session label.'),
+  session: z.string().min(1).max(128).optional().describe('Optional self-reported session label. Use the same label for related changes so a person can undo or clear them together in AI Changes.'),
 };
 
 function result(value: unknown): McpToolResult {
@@ -46,7 +46,8 @@ function tool<S extends z.ZodRawShape>(name: string, description: string, shape:
 export function operationSummary(op: Operation) {
   return { id: op.id, timestamp: op.timestamp, kind: op.kind, path: op.path, target: op.target,
     beforeHash: op.before?.hash ?? null, afterHash: op.after?.hash ?? null,
-    status: op.status, review: op.review, agent: op.agent, session: op.session, from: op.from, to: op.to, error: op.error };
+    status: op.status, pendingApproval: op.status === 'pending-delete', agent: op.agent, session: op.session,
+    from: op.from, to: op.to, error: op.error };
 }
 
 function verifyTarget(target: EditorTarget, expected: { path: string; expectedHash: string; from?: number; to?: number }) {
@@ -101,7 +102,7 @@ export function createToolDefinitions(context: WikiShipContext, journal: Journal
     tool('wikiship_create_file', 'Create a UTF-8 file at an absent path, recording AI provenance. Existing files are never overwritten.', {
       path, content, ...identity,
     }, args => mutate({ ...args, kind: 'create' }), true),
-    tool('wikiship_delete_file', 'Delete one file only if its current hash matches. Preserve the full previous content in the local review journal.', {
+    tool('wikiship_delete_file', 'Stage a file deletion only if its current hash matches. The file stays in the vault until a human marks the session done; then it moves to Obsidian trash.', {
       path, expectedHash, ...identity,
     }, args => mutate({ ...args, kind: 'delete' }), true, true),
     tool('wikiship_move_file', 'Move a file to an absent vault-relative target. Require its current hash and record both paths. Does not update links in other files.', {
@@ -114,7 +115,7 @@ export function createToolDefinitions(context: WikiShipContext, journal: Journal
       const slash = args.path.lastIndexOf('/');
       return mutate({ ...args, kind: 'move', target: args.path.slice(0, slash + 1) + args.name });
     }, true, true),
-    tool('wikiship_get_changes', 'Read a bounded page of operation summaries, newest first. Full snapshots and human review/revert actions are not exposed.', {
+    tool('wikiship_get_changes', 'Read a bounded page of pending change summaries, newest first. File contents and human approval/undo actions are not exposed.', {
       path: path.optional(), offset: offset.default(0), limit: z.number().int().min(1).max(100).default(20),
     }, async args => {
       const operations = journal.state.operations.filter(op => !args.path || op.path === args.path || op.target === args.path).reverse();

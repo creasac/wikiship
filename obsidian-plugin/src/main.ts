@@ -8,7 +8,7 @@ import { trackJournalShutdown, waitForJournalShutdown } from './provenance/lifec
 import { AtomicStateStore, DEFAULT_EXCLUSIONS, PathPolicy } from './provenance/storage';
 import { ObsidianFiles } from './provenance/obsidian-files';
 import { EditorContext } from './context/editor';
-import { ChangesView, ChangeModal, RevertFileModal, CHANGES_VIEW_TYPE, nextUnreviewed } from './review/views';
+import { ChangesView, ChangeModal, CHANGES_VIEW_TYPE, nextChange } from './review/views';
 import { createReviewExtension } from './review/gutter';
 import { registerTools } from './mcp/tools';
 
@@ -49,6 +49,25 @@ export default class WikiShip extends Plugin {
       this.registerEditorExtension(gutter.extension);
       this.register(gutter.destroy);
       this.connection = this.addStatusBarItem();
+      this.connection.addClass('wikiship-statusbar');
+      this.connection.setAttribute('role', 'button');
+      this.connection.setAttribute('tabindex', '0');
+      this.connection.addEventListener('click', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
+      this.connection.addEventListener('keydown', event => {
+        if (event instanceof KeyboardEvent && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault(); this.run(() => this.openView(CHANGES_VIEW_TYPE));
+        }
+      });
+      this.connection.setAttribute('aria-label', 'Open WikiShip AI Changes');
+      let hasQueuedChanges = this.journal.state.operations.length > 0;
+      if (hasQueuedChanges) this.run(() => this.openView(CHANGES_VIEW_TYPE));
+      this.register(this.journal.subscribe(() => {
+        const hasChanges = this.journal.state.operations.length > 0;
+        if (hasChanges && !hasQueuedChanges) this.run(() => this.openView(CHANGES_VIEW_TYPE));
+        hasQueuedChanges = hasChanges;
+        const count = this.journal.state.operations.length;
+        this.connection?.setText(hasChanges ? `wikiship · ${count} change${count === 1 ? '' : 's'} · review` : this.api ? 'wikiship · MCP ready' : 'wikiship · enable Local REST API');
+      }));
       this.addRibbonIcon(WIKISHIP_ICON_ID, 'wikiship AI Changes', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
       this.addCommands();
       this.addSettingTab(new WikiShipSettings(this.app, this));
@@ -70,13 +89,9 @@ export default class WikiShip extends Plugin {
   }
   private addCommands() {
     this.addCommand({ id: 'open-changes', name: 'Show AI Changes', callback: () => this.run(() => this.openView(CHANGES_VIEW_TYPE)) });
-    this.addCommand({ id: 'next-change', name: 'Next unreviewed AI change', callback: () => this.run(() => nextUnreviewed(this.app, this.journal)) });
-    this.addCommand({ id: 'mark-all-reviewed', name: 'Mark all AI changes reviewed', callback: () => this.run(() => this.journal.markReviewed()) });
-    this.addCommand({ id: 'revert-file', name: 'Revert all AI changes in current file', callback: () => this.run(async () => {
-      const path = this.app.workspace.getActiveFile()?.path;
-      if (!path) throw new Error('Open a file first.');
-      new RevertFileModal(this.app, this.journal, path).open();
-    }) });
+    this.addCommand({ id: 'next-change', name: 'Next AI change to review', callback: () => this.run(() => nextChange(this.app, this.journal)) });
+    this.addCommand({ id: 'complete-changes', name: 'Mark all AI changes done and clear', callback: () => this.run(() => this.journal.completeAll()) });
+    this.addCommand({ id: 'undo-changes', name: 'Undo all AI changes', callback: () => this.run(() => this.journal.undoAll()) });
     this.addCommand({ id: 'recover', name: 'Recover interrupted operations', callback: () => this.run(() => this.journal.recover()) });
     this.addCommand({ id: 'reconnect-mcp', name: 'Reconnect Local REST API', callback: () => this.connectMcp() });
   }
@@ -86,7 +101,8 @@ export default class WikiShip extends Plugin {
     try {
       this.api = getAPI(this.app, this.manifest, 3);
       if (this.api) registerTools(this.api, this.context, this.journal);
-      this.connection?.setText(this.api ? 'wikiship · MCP ready' : 'wikiship · enable Local REST API');
+      const pending = this.journal.state.operations.length;
+      this.connection?.setText(pending ? `wikiship · ${pending} change${pending === 1 ? '' : 's'} · review` : this.api ? 'wikiship · MCP ready' : 'wikiship · enable Local REST API');
     } catch (error) {
       this.api?.unregister(); this.api = undefined;
       this.connection?.setText('wikiship · MCP unavailable');
@@ -119,7 +135,7 @@ class WikiShipSettings extends PluginSettingTab {
   display() {
     this.containerEl.empty();
     this.containerEl.createEl('h2', { text: 'wikiship' });
-    this.containerEl.createEl('p', { text: 'Connect through Local REST API 5.3.0 or later. Use the wikiship MCP bridge to restrict agents to tracked mutations. The operation journal and complete change snapshots stay in this vault’s wikiship plugin directory.' });
+    this.containerEl.createEl('p', { text: 'Connect through Local REST API 5.3.0 or later. Use the wikiship MCP bridge to restrict agents to tracked mutations. Pending changes and their before/after content stay in this vault’s plugin data until you undo them or mark them done and clear them.' });
     new Setting(this.containerEl).setName('Excluded directory names').setDesc('One name per line. Applies only to wikiship reads and writes. Obsidian settings are unchanged. Reload wikiship after editing.').addTextArea(input => input.setValue(this.plugin.settings.exclusions.join('\n')).onChange(async value => {
       const exclusions = value.split('\n').map(line => line.trim()).filter(Boolean);
       if (exclusions.some(name => name.includes('/') || name.includes('\\') || name === '.' || name === '..')) return;

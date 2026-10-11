@@ -18,6 +18,10 @@ class MemoryStore implements StateStore {
 class MemoryFiles implements WorkspaceFiles {
   values = new Map<string, Snapshot>();
   async read(path: string) { return this.values.get(path) ?? null; }
+  async trash(path: string, expected: Snapshot) {
+    if ((await this.read(path))?.hash !== expected.hash) throw new Error('Conflict: changed before trash.');
+    this.values.delete(path);
+  }
   async apply(op: Operation, reverse: boolean) {
     const source = reverse && op.kind === 'move' ? op.target! : op.path;
     const expected = reverse ? op.after : op.before;
@@ -145,7 +149,7 @@ describe('wikiship through a real MCP SDK client', () => {
     expect(files.values.get('A.md')!.data).toBe('Human edited this.');
   });
 
-  it('journals create/move/rename/delete and retains deletions for human recovery', async () => {
+  it('journals create/move/rename and lets a human cancel a staged deletion', async () => {
     const { client, journal, files } = await fixture();
     const created = data(await client.callTool({ name: 'wikiship_create_file', arguments: { path: 'new.md', content: 'Keep me.' } }));
     expect((await client.callTool({ name: 'wikiship_create_file', arguments: { path: 'new.md', content: 'Overwrite.' } })).isError).toBe(true);
@@ -153,9 +157,10 @@ describe('wikiship through a real MCP SDK client', () => {
     const renamed = data(await client.callTool({ name: 'wikiship_rename_file', arguments: { path: 'folder/new.md', name: 'renamed.md', expectedHash: moved.afterHash } }));
     expect(renamed.target).toBe('folder/renamed.md');
     const deleted = data(await client.callTool({ name: 'wikiship_delete_file', arguments: { path: 'folder/renamed.md', expectedHash: renamed.afterHash } }));
-    expect(files.values.has('folder/renamed.md')).toBe(false);
+    expect(files.values.has('folder/renamed.md')).toBe(true);
+    expect(deleted.status).toBe('pending-delete');
     expect(journal.state.operations.map(op => op.kind)).toEqual(['create', 'move', 'move', 'delete']);
-    await journal.revert(String(deleted.id));
+    await journal.undo(String(deleted.id));
     expect(files.values.get('folder/renamed.md')!.data).toBe('Keep me.');
     files.values.set('folder/renamed.md', textSnapshot('New human content.'));
     await expect(journal.revert(String(renamed.id))).rejects.toThrow('Conflict');

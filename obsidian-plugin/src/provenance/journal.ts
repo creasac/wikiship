@@ -54,7 +54,7 @@ export class Journal {
   }
   private assertSettled() {
     this.assertStorage();
-    if (this.current.operations.some(o => ['prepared', 'reverting', 'uncertain'].includes(o.status))) throw new Error('An operation needs recovery. Inspect AI Changes and run Recover interrupted operations before further mutations.');
+    if (this.current.operations.some(o => ['prepared', 'reverting', 'uncertain', 'committing-delete'].includes(o.status))) throw new Error('An operation needs recovery. Inspect AI Changes and run Recover interrupted operations before further mutations.');
   }
   async mutate(input: { kind: Operation['kind']; path: string; target?: string; expectedHash?: string; content?: string; from?: number; to?: number; agent?: string; session?: string }, guard?: () => Promise<void> | void) {
     return this.run(async () => {
@@ -63,6 +63,9 @@ export class Journal {
       // queue, and after persisting intent; never serialize a callback or retarget.
       await guard?.();
       if (input.content !== undefined && Buffer.byteLength(input.content) > MAX_FILE_BYTES) throw new Error('Mutation content exceeds the 5 MiB file limit.');
+      if (this.current.operations.some(op => op.kind === 'delete' && op.path === input.path && ['pending-delete', 'committing-delete'].includes(op.status))) {
+        throw new Error('This file has a deletion awaiting review. Undo or confirm that deletion before changing the file again.');
+      }
       const before = await this.files.read(input.path);
       if (input.kind === 'create') {
         if (before !== null) throw new Error('Conflict: file already exists.');
@@ -78,9 +81,12 @@ export class Journal {
         if (after.hash === before!.hash) throw new Error('No change to record.');
       }
       const op = operationSchema.parse({ id: id(), timestamp: new Date().toISOString(), kind: input.kind, path: input.path,
-        target: input.target, before, after, status: 'prepared', recoveryDirection: 'forward', review: 'unreviewed',
+        target: input.target, before, after, status: input.kind === 'delete' ? 'pending-delete' : 'prepared', recoveryDirection: 'forward', review: 'unreviewed',
         agent: input.agent, session: input.session, from: input.from, to: input.to });
       await this.updateOperation(op); // Durable write-ahead intent; no filesystem mutation before this.
+      // Deletion is intentionally staged. The file remains in the vault until a
+      // human confirms the session from AI Changes, where it will go to Obsidian trash.
+      if (input.kind === 'delete') return structuredClone(op);
       try { await guard?.(); }
       catch (error) {
         // A rejected editor guard never reached the adapter. In particular, a
@@ -119,8 +125,20 @@ export class Journal {
   }
   private async recoverPending(): Promise<void> {
     for (const original of this.state.operations) {
-      if (!['prepared', 'uncertain', 'reverting'].includes(original.status)) continue;
+      if (!['prepared', 'uncertain', 'reverting', 'committing-delete'].includes(original.status)) continue;
       const op = structuredClone(original);
+      if (original.status === 'committing-delete') {
+        const current = await this.files.read(op.path);
+        if (current === null || current.hash === op.before?.hash) {
+          // A crash may occur just after trashing but before journal cleanup. Keep
+          // the confirmation visible; the next confirmation safely finishes it.
+          op.status = 'pending-delete'; op.error = undefined;
+        } else {
+          op.status = 'uncertain'; op.error = 'The file changed while a confirmed deletion was being finalized. Inspect the file before continuing.';
+        }
+        await this.updateOperation(op);
+        continue;
+      }
       const direction = original.status === 'reverting' ? 'reverse' : original.status === 'prepared' ? 'forward' : original.recoveryDirection;
       op.status = direction ? this.outcome(await this.classify(op), direction) : 'uncertain';
       op.recoveryDirection = direction;
@@ -157,6 +175,77 @@ export class Journal {
     catch { throw new Error(`File reverted, but journal finalization failed. Operation ${op.id} needs recovery before continuing.`); }
   }
   async revert(operationId: string) { return this.run(() => this.revertOne(operationId)); }
+
+  private matchesSession(op: Operation, session: string | undefined) { return op.session === session; }
+  private async removeOperations(ids: Set<string>) {
+    const next = this.state;
+    next.operations = next.operations.filter(op => !ids.has(op.id));
+    // Do not leave old snapshot/context payloads behind once the review queue is empty.
+    await this.save(next.operations.length ? next : emptyState());
+  }
+  /** Undo and remove one queued change. A staged deletion has not touched the file. */
+  async undo(operationId: string) { return this.run(async () => {
+    this.assertSettled();
+    const op = this.state.operations.find(candidate => candidate.id === operationId);
+    if (!op) throw new Error('This change is no longer in the review queue.');
+    if (op.status === 'applied') await this.revertOne(operationId);
+    else if (op.status === 'pending-delete' || op.status === 'failed' || op.status === 'reverted') { /* no workspace change to undo */ }
+    else throw new Error('This change needs recovery before it can be undone.');
+    await this.removeOperations(new Set([operationId]));
+  }); }
+
+  private async undoMatching(predicate: (op: Operation) => boolean) {
+    this.assertSettled();
+    const operations = this.state.operations.filter(predicate).reverse();
+    let undone = 0;
+    for (const op of operations) {
+      try {
+        if (op.status === 'applied') await this.revertOne(op.id);
+        else if (!['pending-delete', 'failed', 'reverted'].includes(op.status)) throw new Error('This change needs recovery before it can be undone.');
+      } catch (error) {
+        throw new Error(`Undid ${undone} change(s); stopped at ${op.path} (${op.id}): ${String(error)}`);
+      }
+      undone++;
+    }
+    await this.removeOperations(new Set(operations.map(op => op.id)));
+    return { undone };
+  }
+  /** Undo a change session newest first, then discard all its review data. */
+  async undoSession(session?: string) { return this.run(() => this.undoMatching(op => this.matchesSession(op, session))); }
+  /** Undo every queued session and erase all review snapshots. */
+  async undoAll() { return this.run(() => this.undoMatching(() => true)); }
+
+  private async complete(predicate: (op: Operation) => boolean) {
+    this.assertSettled();
+    const selected = this.state.operations.filter(predicate);
+    for (const original of selected) {
+      if (original.kind !== 'delete' || original.status !== 'pending-delete') continue;
+      const op = structuredClone(original);
+      const current = await this.files.read(op.path);
+      // Missing means the file has already been moved to trash (for example, a
+      // restart after the trash operation), or the requested deletion happened
+      // outside WikiShip. Either way, there is no vault file left to remove.
+      if (!current) continue;
+      if (current.hash !== op.before?.hash) throw new Error(`Conflict: ${op.path} changed after the deletion was staged. Nothing was cleared.`);
+      op.status = 'committing-delete'; await this.updateOperation(op);
+      try { await this.files.trash(op.path, op.before!); }
+      catch (error) {
+        const latest = await this.files.read(op.path).catch(() => op.before);
+        op.status = latest === null ? 'pending-delete' : latest?.hash === op.before?.hash ? 'pending-delete' : 'uncertain';
+        op.error = String(error); await this.updateOperation(op);
+        throw new Error(`Could not move ${op.path} to Obsidian trash. Its review data is still available: ${String(error)}`);
+      }
+    }
+    const ids = new Set(selected.map(op => op.id));
+    if (ids.size) await this.removeOperations(ids);
+    return { cleared: ids.size };
+  }
+
+  /** Accept one session; confirmed deletions go to Obsidian trash before records are erased. */
+  async completeSession(session?: string) { return this.run(() => this.complete(op => this.matchesSession(op, session))); }
+  /** Accept every queued session and erase all review snapshots. */
+  async completeAll() { return this.run(() => this.complete(() => true)); }
+
   async revertFile(path: string) { return this.run(async () => {
     this.assertSettled();
     const atPath = new Map<string, Operation[]>(), lastAtPath = new Map<string, Operation[]>();
