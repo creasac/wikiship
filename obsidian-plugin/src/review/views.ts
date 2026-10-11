@@ -33,6 +33,25 @@ async function openLocation(app: App, path: string, from?: number, to?: number) 
   }
 }
 
+async function openChangeLocation(app: App, journal: Journal, op: Operation) {
+  const path = op.target ?? op.path;
+  if (!app.vault.getFileByPath(path)) return;
+  if (op.kind === 'delete' && op.before?.encoding === 'utf8') {
+    await openLocation(app, path, 0, op.before.data.length);
+    return;
+  }
+  const current = await journal.files.read(path);
+  const location = current?.encoding === 'utf8'
+    ? locationsForFile(journal.state.operations, path, current.data).find(candidate => candidate.operationId === op.id)
+    : undefined;
+  await openLocation(app, path, location?.from, location?.to);
+}
+
+async function inspectChange(app: App, journal: Journal, op: Operation) {
+  await openChangeLocation(app, journal, op);
+  new ChangeModal(app, journal, op.id).open();
+}
+
 export class ChangesView extends ItemView {
   private stop?: () => void;
   constructor(leaf: WorkspaceLeaf, readonly journal: Journal) { super(leaf); }
@@ -98,7 +117,7 @@ export class ChangesView extends ItemView {
   }
   private row(parent: HTMLElement, op: Operation) {
     const row = parent.createDiv('wikiship-change-item');
-    action(row, operationLabel(op), () => new ChangeModal(this.app, this.journal, op.id).open(), 'wikiship-text-button');
+    action(row, operationLabel(op), () => inspectChange(this.app, this.journal, op), 'wikiship-text-button');
     row.createSpan({ cls: `wikiship-status wikiship-status-${op.status}`, text: op.status === 'pending-delete' ? 'Awaiting deletion approval' : op.status });
     action(row, 'Undo', async () => { await this.journal.undo(op.id); new Notice('Change undone and review data cleared.'); }, 'wikiship-text-button wikiship-muted');
     row.createEl('div', { cls: 'wikiship-muted wikiship-change-time', text: `${new Date(op.timestamp).toLocaleString()}${op.agent ? ` · ${op.agent}` : ''}` });
@@ -175,7 +194,7 @@ export class ChangeModal extends Modal {
     }, 'mod-cta');
     action(actions, 'Next change', async () => { this.close(); await nextChange(this.app, this.journal, op.id); });
     const path = op.target ?? op.path;
-    if (this.app.vault.getFileByPath(path)) action(actions, 'Open file', () => openLocation(this.app, path));
+    if (this.app.vault.getFileByPath(path)) action(actions, 'Open at change', () => openChangeLocation(this.app, this.journal, op));
     const before = op.before?.encoding === 'utf8' ? op.before.data : op.before ? null : '';
     const after = op.after?.encoding === 'utf8' ? op.after.data : op.after ? null : '';
     let expandSnapshots = before === null || after === null;
@@ -219,9 +238,7 @@ export async function nextChange(app: App, journal: Journal, afterId?: string): 
   const path = next.target ?? next.path;
   const file = app.vault.getFileByPath(path);
   if (file) {
-    const current = await journal.files.read(path);
-    const location = next.kind !== 'delete' && current?.encoding === 'utf8' ? locationsForFile(all, path, current.data).find(loc => loc.operationId === next.id) : undefined;
-    await openLocation(app, path, location?.from, location?.to);
+    await openChangeLocation(app, journal, next);
   }
   new ChangeModal(app, journal, next.id).open();
 }

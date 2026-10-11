@@ -81,7 +81,7 @@ export class Journal {
         if (after.hash === before!.hash) throw new Error('No change to record.');
       }
       const op = operationSchema.parse({ id: id(), timestamp: new Date().toISOString(), kind: input.kind, path: input.path,
-        target: input.target, before, after, status: input.kind === 'delete' ? 'pending-delete' : 'prepared', recoveryDirection: 'forward', review: 'unreviewed',
+        target: input.target, before, after, status: input.kind === 'delete' ? 'pending-delete' : 'prepared', recoveryDirection: 'forward',
         agent: input.agent, session: input.session, from: input.from, to: input.to });
       await this.updateOperation(op); // Durable write-ahead intent; no filesystem mutation before this.
       // Deletion is intentionally staged. The file remains in the vault until a
@@ -153,13 +153,7 @@ export class Journal {
     await this.recoverPending();
     this.emit();
   }); }
-  async markReviewed(operationId?: string) { return this.run(async () => {
-    this.assertStorage();
-    const next = this.state;
-    for (const op of next.operations) if ((!operationId || op.id === operationId) && op.status === 'applied') op.review = 'reviewed';
-    await this.save(next);
-  }); }
-  private async revertOne(operationId: string) {
+  private async undoApplied(operationId: string) {
     this.assertSettled();
     const op = this.state.operations.find(o => o.id === operationId);
     if (!op || op.status !== 'applied') throw new Error('Only applied changes can be reverted.');
@@ -172,9 +166,8 @@ export class Journal {
     }
     op.status = 'reverted'; op.error = undefined;
     try { await this.updateOperation(op); }
-    catch { throw new Error(`File reverted, but journal finalization failed. Operation ${op.id} needs recovery before continuing.`); }
+    catch { throw new Error(`File was undone, but journal finalization failed. Operation ${op.id} needs recovery before continuing.`); }
   }
-  async revert(operationId: string) { return this.run(() => this.revertOne(operationId)); }
 
   private matchesSession(op: Operation, session: string | undefined) { return op.session === session; }
   private async removeOperations(ids: Set<string>) {
@@ -188,7 +181,7 @@ export class Journal {
     this.assertSettled();
     const op = this.state.operations.find(candidate => candidate.id === operationId);
     if (!op) throw new Error('This change is no longer in the review queue.');
-    if (op.status === 'applied') await this.revertOne(operationId);
+    if (op.status === 'applied') await this.undoApplied(operationId);
     else if (op.status === 'pending-delete' || op.status === 'failed' || op.status === 'reverted') { /* no workspace change to undo */ }
     else throw new Error('This change needs recovery before it can be undone.');
     await this.removeOperations(new Set([operationId]));
@@ -200,7 +193,7 @@ export class Journal {
     let undone = 0;
     for (const op of operations) {
       try {
-        if (op.status === 'applied') await this.revertOne(op.id);
+        if (op.status === 'applied') await this.undoApplied(op.id);
         else if (!['pending-delete', 'failed', 'reverted'].includes(op.status)) throw new Error('This change needs recovery before it can be undone.');
       } catch (error) {
         throw new Error(`Undid ${undone} change(s); stopped at ${op.path} (${op.id}): ${String(error)}`);
@@ -245,28 +238,4 @@ export class Journal {
   async completeSession(session?: string) { return this.run(() => this.complete(op => this.matchesSession(op, session))); }
   /** Accept every queued session and erase all review snapshots. */
   async completeAll() { return this.run(() => this.complete(() => true)); }
-
-  async revertFile(path: string) { return this.run(async () => {
-    this.assertSettled();
-    const atPath = new Map<string, Operation[]>(), lastAtPath = new Map<string, Operation[]>();
-    // Track each file's history through renames, accepting its current or old
-    // name. Creation starts a new lifetime when an old pathname is reused.
-    for (const op of this.state.operations) {
-      if (op.status !== 'applied') continue;
-      const history = op.kind === 'create' ? [] : atPath.get(op.path) ?? [];
-      history.push(op);
-      lastAtPath.set(op.path, history);
-      if (op.kind === 'move') {
-        atPath.delete(op.path); atPath.set(op.target!, history); lastAtPath.set(op.target!, history);
-      } else if (op.kind === 'delete') atPath.delete(op.path);
-      else atPath.set(op.path, history);
-    }
-    let count = 0;
-    for (const op of [...(atPath.get(path) ?? lastAtPath.get(path) ?? [])].reverse()) {
-      try { await this.revertOne(op.id); }
-      catch (error) { throw new Error(`Reverted ${count} change(s); stopped at ${op.path} (${op.id}): ${String(error)}`); }
-      count++;
-    }
-    return { reverted: count };
-  }); }
 }

@@ -45,7 +45,7 @@ export const operationSchema = z.object({
   id: z.string().min(1), timestamp: z.string(), kind: z.enum(['edit', 'create', 'delete', 'move']),
   path: z.string().min(1), target: z.string().min(1).optional(), before: snapshotSchema.nullable(), after: snapshotSchema.nullable(),
   status: z.enum(['prepared', 'applied', 'failed', 'uncertain', 'reverting', 'reverted', 'pending-delete', 'committing-delete']),
-  review: z.enum(['unreviewed', 'reviewed']), agent: z.string().optional(), session: z.string().optional(),
+  agent: z.string().optional(), session: z.string().optional(),
   from: z.number().int().nonnegative().optional(), to: z.number().int().nonnegative().optional(),
   error: z.string().optional(),
   recoveryDirection: z.enum(['forward', 'reverse']).optional(),

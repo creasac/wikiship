@@ -24,26 +24,24 @@ export function locationsForFile(operations: Operation[], path: string, text: st
     const afterPath = op.kind === 'move' ? op.target : op.path;
     if (afterPath !== currentPath || op.after?.hash !== currentHash) continue;
     if (op.kind === 'move') {
-      if (op.review === 'unreviewed') located.push({ operationId: op.id, from: 0, to: 0, kind: 'modified' });
+      located.push({ operationId: op.id, from: 0, to: 0, kind: 'modified' });
       currentPath = op.path;
     } else {
       const region = changeRegion(op);
       if (region) {
-        if (op.review === 'unreviewed') {
-          let from = region.from, to = region.afterTo, replaced = false;
-          // following is newest first; transform from this operation's result forward.
-          for (let j = following.length - 1; j >= 0; j--) {
-            const later = following[j]!, delta = later.afterTo - later.beforeTo;
-            // Overlapping edits no longer have one attributable contiguous span.
-            // Keep the historical diff in the sidebar instead of marking new text.
-            if ((later.from < to && later.beforeTo > from) ||
-              (from === to && later.from <= from && later.beforeTo > from) ||
-              (later.from > from && later.from < to)) { replaced = true; break; }
-            const map = (offset: number, end: boolean) => offset < later.from ? offset : offset >= later.beforeTo ? offset + delta : end ? later.afterTo : later.from;
-            from = map(from, false); to = map(to, true);
-          }
-          if (!replaced) located.push({ operationId: op.id, from, to, kind: region.kind });
+        let from = region.from, to = region.afterTo, replaced = false;
+        // following is newest first; transform from this operation's result forward.
+        for (let j = following.length - 1; j >= 0; j--) {
+          const later = following[j]!, delta = later.afterTo - later.beforeTo;
+          // Overlapping edits no longer have one attributable contiguous span.
+          // Keep the change in the sidebar instead of marking unrelated text.
+          if ((later.from < to && later.beforeTo > from) ||
+            (from === to && later.from <= from && later.beforeTo > from) ||
+            (later.from > from && later.from < to)) { replaced = true; break; }
+          const map = (offset: number, end: boolean) => offset < later.from ? offset : offset >= later.beforeTo ? offset + delta : end ? later.afterTo : later.from;
+          from = map(from, false); to = map(to, true);
         }
+        if (!replaced) located.push({ operationId: op.id, from, to, kind: region.kind });
         following.push(region);
       }
     }

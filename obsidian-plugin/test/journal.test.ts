@@ -54,22 +54,21 @@ async function setup(initial = 'original') {
 }
 
 describe('AI provenance and safe inverse operations', () => {
-  it('records before/after and attribution, persists review, and reverts the exact text', async () => {
+  it('records a pending before/after change and removes it after undo', async () => {
     const { journal, files, store, edit } = await setup();
     const op = await edit();
     expect(files.text('note.md')).toBe('AI text');
-    expect(op).toMatchObject({ before: { data: 'original' }, after: { data: 'AI text' }, status: 'applied', review: 'unreviewed', agent: 'test-agent', session: 'test-session' });
-    await journal.markReviewed(op.id);
-    expect(store.saved?.operations[0]?.review).toBe('reviewed');
-    await journal.revert(op.id);
+    expect(op).toMatchObject({ before: { data: 'original' }, after: { data: 'AI text' }, status: 'applied', agent: 'test-agent', session: 'test-session' });
+    expect(store.saved?.operations).toHaveLength(1);
+    await journal.undo(op.id);
     expect(files.text('note.md')).toBe('original');
-    expect(journal.state.operations[0]?.status).toBe('reverted');
+    expect(journal.state.operations).toEqual([]);
   });
   it('preserves a newer manual edit when reverting', async () => {
     const { journal, files, edit } = await setup();
     const op = await edit();
     files.put('note.md', 'human text');
-    await expect(journal.revert(op.id)).rejects.toThrow('Conflict');
+    await expect(journal.undo(op.id)).rejects.toThrow('Conflict');
     expect(files.text('note.md')).toBe('human text');
     expect(journal.state.operations).toHaveLength(1);
     expect(journal.state.operations[0]?.status).toBe('applied');
@@ -78,7 +77,7 @@ describe('AI provenance and safe inverse operations', () => {
     const { journal, files, edit } = await setup();
     const op = await edit(), apply = files.apply.bind(files);
     vi.spyOn(files, 'apply').mockImplementationOnce(async (...args) => { files.put('note.md', 'human race'); await apply(...args); });
-    await expect(journal.revert(op.id)).rejects.toThrow('Conflict');
+    await expect(journal.undo(op.id)).rejects.toThrow('Conflict');
     expect(files.text('note.md')).toBe('human race');
     expect(journal.state.operations[0]).toMatchObject({ status: 'applied', recoveryDirection: 'reverse' });
   });
@@ -141,7 +140,7 @@ describe('AI provenance and safe inverse operations', () => {
   it('undoes creation and stages binary deletion until confirmation moves it to trash', async () => {
     const { journal, files } = await setup();
     const create = await journal.mutate({ kind: 'create', path: 'new.md', content: 'new file' });
-    await journal.revert(create.id);
+    await journal.undo(create.id);
     expect(await files.read('new.md')).toBeNull();
     const binary = new Uint8Array([0, 255, 254, 17, 128, 13, 10]);
     files.put('diagram.png', binary);
@@ -189,23 +188,23 @@ describe('AI provenance and safe inverse operations', () => {
     const { journal, files } = await setup();
     const op = await journal.mutate({ kind: 'move', path: 'note.md', target: 'renamed.md', expectedHash: hash('original') });
     files.put('note.md', 'new human file');
-    await expect(journal.revert(op.id)).rejects.toThrow('Conflict');
+    await expect(journal.undo(op.id)).rejects.toThrow('Conflict');
     expect(files.text('note.md')).toBe('new human file');
     expect(files.text('renamed.md')).toBe('original');
     files.content.delete('note.md');
-    await journal.revert(op.id);
+    await journal.undo(op.id);
     expect(files.text('note.md')).toBe('original');
     expect(await files.read('renamed.md')).toBeNull();
   });
-  it.each(['note.md', 'b.md', 'c.md'])('follows file history through multiple renames when reverting using %s', async path => {
-    const { journal, files, edit } = await setup();
-    await edit('first');
-    await journal.mutate({ kind: 'move', path: 'note.md', target: 'b.md', expectedHash: hash('first') });
-    await journal.mutate({ kind: 'edit', path: 'b.md', expectedHash: hash('first'), from: 0, to: 5, content: 'second' });
-    await journal.mutate({ kind: 'create', path: 'unrelated.md', content: 'keep me' });
-    await journal.mutate({ kind: 'move', path: 'b.md', target: 'c.md', expectedHash: hash('second') });
-    await journal.mutate({ kind: 'edit', path: 'c.md', expectedHash: hash('second'), from: 6, to: 6, content: '!' });
-    expect(await journal.revertFile(path)).toEqual({ reverted: 5 });
+  it.each(['note.md', 'b.md', 'c.md'])('undoes a session through multiple renames (%s)', async _path => {
+    const { journal, files } = await setup();
+    await journal.mutate({ kind: 'edit', path: 'note.md', expectedHash: hash('original'), from: 0, to: 8, content: 'first', session: 'lesson' });
+    await journal.mutate({ kind: 'move', path: 'note.md', target: 'b.md', expectedHash: hash('first'), session: 'lesson' });
+    await journal.mutate({ kind: 'edit', path: 'b.md', expectedHash: hash('first'), from: 0, to: 5, content: 'second', session: 'lesson' });
+    await journal.mutate({ kind: 'create', path: 'unrelated.md', content: 'keep me', session: 'other' });
+    await journal.mutate({ kind: 'move', path: 'b.md', target: 'c.md', expectedHash: hash('second'), session: 'lesson' });
+    await journal.mutate({ kind: 'edit', path: 'c.md', expectedHash: hash('second'), from: 6, to: 6, content: '!', session: 'lesson' });
+    expect(await journal.undoSession('lesson')).toEqual({ undone: 5 });
     expect(files.text('note.md')).toBe('original');
     expect(files.text('unrelated.md')).toBe('keep me');
     expect(await files.read('c.md')).toBeNull();
@@ -215,16 +214,17 @@ describe('AI provenance and safe inverse operations', () => {
     const old = await edit('old AI edit');
     await journal.mutate({ kind: 'move', path: 'note.md', target: 'archived.md', expectedHash: hash('old AI edit') });
     await journal.mutate({ kind: 'create', path: 'note.md', content: 'new incarnation' });
-    expect(await journal.revertFile('note.md')).toEqual({ reverted: 1 });
+    const creation = journal.state.operations.find(op => op.kind === 'create')!;
+    await journal.undo(creation.id);
     expect(files.text('archived.md')).toBe('old AI edit');
     expect(journal.state.operations.find(op => op.id === old.id)?.status).toBe('applied');
   });
   it('reports partial file-wide revert and stops before overwriting older manual edits', async () => {
     const { journal, files, edit } = await setup();
-    await edit('first');
+    await journal.mutate({ kind: 'edit', path: 'note.md', expectedHash: hash('original'), from: 0, to: 8, content: 'first', session: 'lesson' });
     files.put('note.md', 'first plus human edit');
-    await journal.mutate({ kind: 'edit', path: 'note.md', expectedHash: hash('first plus human edit'), from: 0, to: 5, content: 'second' });
-    await expect(journal.revertFile('note.md')).rejects.toThrow('Reverted 1 change(s); stopped');
+    await journal.mutate({ kind: 'edit', path: 'note.md', expectedHash: hash('first plus human edit'), from: 0, to: 5, content: 'second', session: 'lesson' });
+    await expect(journal.undoSession('lesson')).rejects.toThrow('Undid 1 change(s); stopped');
     expect(files.text('note.md')).toBe('first plus human edit');
     expect(journal.state.operations.map(op => op.status)).toEqual(['applied', 'reverted']);
   });
@@ -252,7 +252,7 @@ describe('write-ahead persistence and interruption recovery', () => {
     await expect(journal.mutate({ kind: 'create', path: 'next.md' })).rejects.toThrow('persistence failed');
     const restarted = new Journal(store, files); await restarted.load();
     expect(restarted.state.operations[0]?.status).toBe('applied');
-    await restarted.revert(restarted.state.operations[0]!.id);
+    await restarted.undo(restarted.state.operations[0]!.id);
     expect(files.text('note.md')).toBe('original');
   });
   it('reloads a possibly committed state before resuming after failed persistence', async () => {
@@ -261,13 +261,13 @@ describe('write-ahead persistence and interruption recovery', () => {
     await expect(edit()).rejects.toThrow('finalization failed');
     await journal.recover();
     expect(journal.state.operations[0]?.status).toBe('applied');
-    await journal.revert(journal.state.operations[0]!.id);
+    await journal.undo(journal.state.operations[0]!.id);
     expect(files.text('note.md')).toBe('original');
   });
   it('recovers failed reverse finalization without replaying the inverse', async () => {
     const { journal, files, store, edit } = await setup();
     const op = await edit(); store.failAt = 4;
-    await expect(journal.revert(op.id)).rejects.toThrow('finalization failed');
+    await expect(journal.undo(op.id)).rejects.toThrow('finalization failed');
     expect(store.saved?.operations[0]?.status).toBe('reverting');
     expect(files.text('note.md')).toBe('original');
     const apply = vi.spyOn(files, 'apply'), restarted = new Journal(store, files);
@@ -279,7 +279,7 @@ describe('write-ahead persistence and interruption recovery', () => {
     const { journal, files, store, edit } = await setup();
     const op = await edit();
     vi.spyOn(files, 'apply').mockImplementationOnce(async () => { files.put('note.md', 'partial inverse'); throw new Error('Interrupted'); });
-    await expect(journal.revert(op.id)).rejects.toThrow('Interrupted');
+    await expect(journal.undo(op.id)).rejects.toThrow('Interrupted');
     const restarted = new Journal(store, files); await restarted.load();
     expect(restarted.state.operations[0]).toMatchObject({ status: 'uncertain', recoveryDirection: 'reverse' });
     expect(files.text('note.md')).toBe('partial inverse');

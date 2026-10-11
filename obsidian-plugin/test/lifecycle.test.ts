@@ -91,7 +91,7 @@ describe('plugin journal lifecycle', () => {
     const work = await blockedMutation(old), lock = join(directory, 'state.lock');
     const before = await readFile(lock, 'utf8');
     old.onunload();
-    await expect(old.journal.markReviewed()).rejects.toThrow('unloading');
+    await expect(old.journal.undoAll()).rejects.toThrow('unloading');
     // Obsidian discards the old plugin module on reload: a module-local map
     // would fail this test even though a same-module replacement could pass.
     vi.resetModules();
@@ -171,7 +171,7 @@ describe('plugin journal lifecycle', () => {
     try {
       finish.release(); await starting; await opening;
       expect(old.context).toBeUndefined();
-      await expect(old.journal.markReviewed()).rejects.toThrow('unloading');
+      await expect(old.journal.undoAll()).rejects.toThrow('unloading');
       expect(next.journal.state.operations).toEqual([]);
     } finally {
       finish.release(); await starting; await opening.catch(() => undefined);

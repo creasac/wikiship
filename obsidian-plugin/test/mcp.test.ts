@@ -115,11 +115,11 @@ describe('wikiship through a real MCP SDK client', () => {
     expect(files.values.get('B.md')!.data).toContain('## API\nPreserve this.');
     expect(journal.state.operations[0]!.before!.data).toContain('Original design.');
     expect(store.saved!.operations[0]!.agent).toBe('test-client');
-    expect(store.saved!.operations[0]!.review).toBe('unreviewed');
+    expect(store.saved!.operations[0]!.status).toBe('applied');
 
     const changes = data(await client.callTool({ name: 'wikiship_get_changes', arguments: { limit: 1 } }));
     expect(JSON.stringify(changes)).not.toContain('Original design.');
-    await journal.revert(String(operation.id));
+    await journal.undo(String(operation.id));
     expect(files.values.get('B.md')!.data).toContain('Original design.');
   });
 
@@ -163,7 +163,7 @@ describe('wikiship through a real MCP SDK client', () => {
     await journal.undo(String(deleted.id));
     expect(files.values.get('folder/renamed.md')!.data).toBe('Keep me.');
     files.values.set('folder/renamed.md', textSnapshot('New human content.'));
-    await expect(journal.revert(String(renamed.id))).rejects.toThrow('Conflict');
+    await expect(journal.undo(String(renamed.id))).rejects.toThrow('Conflict');
     expect(files.values.get('folder/renamed.md')!.data).toBe('New human content.');
   });
 
