@@ -240,7 +240,7 @@ describe('write-ahead persistence and interruption recovery', () => {
     expect(files.text('note.md')).toBe('original');
     await expect(edit()).rejects.toThrow('persistence failed');
     await journal.recover();
-    expect(journal.state.operations.map(op => op.status)).toEqual(commitBeforeError ? ['failed'] : []);
+    expect(journal.state.operations).toEqual([]);
     await edit();
     expect(files.text('note.md')).toBe('AI text');
   });
@@ -303,11 +303,11 @@ describe('write-ahead persistence and interruption recovery', () => {
     expect(journal.state.operations[0]?.status).toBe('applied');
     expect(files.text('note.md')).toBe('AI text');
   });
-  it('classifies an adapter error without a write as failed', async () => {
+  it('discards an adapter error when no file was written', async () => {
     const { journal, files, edit } = await setup();
     vi.spyOn(files, 'apply').mockRejectedValueOnce(new Error('Write denied'));
-    await expect(edit()).rejects.toThrow('Mutation failed (failed)');
-    expect(journal.state.operations[0]?.status).toBe('failed');
+    await expect(edit()).rejects.toThrow('Mutation failed (not applied)');
+    expect(journal.state.operations).toEqual([]);
     expect(files.text('note.md')).toBe('original');
   });
   it('leaves durable intent recoverable when inspection itself fails after a write error', async () => {

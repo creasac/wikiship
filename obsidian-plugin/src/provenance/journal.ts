@@ -91,14 +91,20 @@ export class Journal {
       catch (error) {
         // A rejected editor guard never reached the adapter. In particular, a
         // human's coincidentally matching edit must not acquire AI provenance.
-        op.status = 'failed'; op.error = String(error); await this.updateOperation(op);
-        throw new Error(`Mutation cancelled before writing; operation ${op.id}: ${op.error}`);
+        await this.removeOperations(new Set([op.id]));
+        throw new Error(`Mutation cancelled before writing; operation ${op.id}: ${String(error)}`);
       }
       try { await this.files.apply(op, false); }
       catch (error) {
+        // Known precondition failures never wrote. For other adapter errors,
+        // classify the file before deciding whether a review record is needed.
+        const phase = error instanceof MutationPreconditionError ? 'before' : await this.classify(op);
+        if (phase === 'before') {
+          await this.removeOperations(new Set([op.id]));
+          throw new Error(`Mutation failed (not applied); operation ${op.id}: ${String(error)}`);
+        }
         op.error = String(error);
-        // A failed adapter call might have completed part or all of a write.
-        op.status = error instanceof MutationPreconditionError ? 'failed' : this.outcome(await this.classify(op), 'forward');
+        op.status = this.outcome(phase, 'forward');
         await this.updateOperation(op);
         throw new Error(`Mutation failed (${op.status}); operation ${op.id}: ${op.error}`);
       }
@@ -140,7 +146,12 @@ export class Journal {
         continue;
       }
       const direction = original.status === 'reverting' ? 'reverse' : original.status === 'prepared' ? 'forward' : original.recoveryDirection;
-      op.status = direction ? this.outcome(await this.classify(op), direction) : 'uncertain';
+      const phase = await this.classify(op);
+      if (direction && phase === 'before') {
+        await this.removeOperations(new Set([op.id]));
+        continue;
+      }
+      op.status = direction ? this.outcome(phase, direction) : 'uncertain';
       op.recoveryDirection = direction;
       op.error = op.status === 'uncertain' ? 'File state or recovery direction is uncertain. Restore a recorded state and recover again; no file was overwritten.' : undefined;
       await this.updateOperation(op);
