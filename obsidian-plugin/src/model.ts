@@ -62,8 +62,6 @@ export const operationSchema = z.object({
 export type Operation = z.infer<typeof operationSchema>;
 export const stateSchema = z.object({
   version: z.literal(1), operations: z.array(operationSchema),
-  // Legacy pins are opaque compatibility data: preserve them without reading or updating them.
-  context: z.unknown().optional(),
 }).passthrough().superRefine((state, context) => {
   if (new Set(state.operations.map(op => op.id)).size !== state.operations.length) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'Journal operation IDs must be unique.' });

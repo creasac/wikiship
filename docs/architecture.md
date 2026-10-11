@@ -4,7 +4,7 @@ wikiship is a desktop Obsidian plugin. `src/context` reads the current editor se
 
 ## Live editor context
 
-Each call captures the active editor's text, selection, cursor, and path, then validates that they still match after asynchronous policy/content checks. Reads prefer a consistent live editor buffer and identify their source and whole-file hash. Selection responses include the exact selected text and source-aware link metadata. No persistent basket or saved selection is used.
+Each call captures the active editor's text, selection, cursor, and path, then validates that they still match after asynchronous policy/content checks. Reads prefer a consistent live editor buffer and identify their source and whole-file hash. Selection responses include the exact selected text and source-aware link metadata.
 
 Editor state returns section heading ancestry and UTF-16 ranges, not the section body. The bounded file-state tool reads saved bytes; a client must compare its hash with the editor hash before using its excerpt for an editor edit. A missing editor is reported explicitly with no invented selection. Switching tabs changes the context of the next call.
 
@@ -44,4 +44,4 @@ This bridge controls tools exposed by that connection. A client with another con
 
 Files remain in the original vault/project. There is no import, proprietary document format, search index, cloud service, model provider, or sync layer. Default generated-directory exclusions apply only to wikiship. Users edit these rules in wikiship settings; Obsidian configuration is otherwise untouched.
 
-`<configDir>/plugins/wikiship/state.json` holds the journal. Existing version-1 `context` data and unknown top-level fields are preserved unchanged as opaque compatibility data across journal saves. Legacy pins are not resolved, updated on rename, or exposed through tools. New journals omit `context`. Operation and snapshot validation remains strict; legacy pin content cannot block a valid journal from loading. Retired basket panes restored from an older workspace are closed when the layout is ready. `state.lock` and `state.lock.guard` enforce the local writer lock; both are ownership metadata, not journal backups. Snapshot retention is unbounded in this initial version; review does not purge recovery data. Users should arrange their own backup and sync policies, avoiding simultaneous synchronization/writing of the journal. When state changes externally, wikiship stops instead of silently merging it.
+`<configDir>/plugins/wikiship/state.json` holds the versioned operation journal. `state.lock` and `state.lock.guard` enforce the local writer lock; both are ownership metadata, not journal backups. Snapshot retention is currently unbounded; review does not purge recovery data. Users should arrange their own backup and sync policies, avoiding simultaneous synchronization/writing of the journal. When state changes externally, wikiship stops instead of silently merging it.

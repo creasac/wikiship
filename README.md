@@ -30,7 +30,7 @@ Enable **wikiship** and **Local REST API with MCP** under Community plugins. wik
 
 Start your conversation in your configured MCP client. See the [client setup and tool guide](docs/mcp-tools.md) for connection and safe-edit instructions.
 
-The ribbon opens **AI Changes**. The command palette contains exactly these six wikiship commands:
+The ribbon opens **AI Changes**. The command palette contains these six wikiship commands:
 
 - **Show AI Changes**
 - **Next unreviewed AI change**
@@ -38,8 +38,6 @@ The ribbon opens **AI Changes**. The command palette contains exactly these six 
 - **Revert all AI changes in current file**
 - **Recover interrupted operations**
 - **Reconnect Local REST API**
-
-Persistent pinning and its basket sidebar have been removed. Existing pin data in `state.json` is preserved as opaque legacy data; it is not read as context, refreshed, or deleted. The old basket MCP tools are removed, including `wikiship_get_context`; that name does not acquire a new meaning. See [client migration](docs/mcp-tools.md#removal-of-persistent-pins).
 
 ## What v1 guarantees
 

@@ -22,8 +22,6 @@ const profile = join(root, 'profile'), vault = join(root, 'vault');
 const output = join(repository, 'artifacts');
 const token = randomBytes(32).toString('hex');
 const port = Number(process.env.WIKISHIP_SMOKE_PORT ?? 29123);
-const legacyContext = [{ id: 'legacy-fixture', kind: 'note', path: 'missing.md', snapshot: 'preserved legacy fixture' }];
-const removedTools = ['wikiship_get_context', 'wikiship_context_add_selection', 'wikiship_context_add_section', 'wikiship_context_add_note', 'wikiship_context_remove', 'wikiship_context_clear'];
 const checks = [];
 const pageErrors = [];
 let electron, browser, page, client, bridgeClient;
@@ -104,7 +102,6 @@ try {
   for (const file of ['main.js', 'manifest.json', 'styles.css']) await copyFile(join(repository, 'obsidian-plugin', file), join(vault, '.obsidian', 'plugins', 'wikiship', file));
   await copyFile(join(downloads, 'rest-main.js'), join(vault, '.obsidian', 'plugins', 'obsidian-local-rest-api', 'main.js'));
   await copyFile(join(downloads, 'rest-manifest.json'), join(vault, '.obsidian', 'plugins', 'obsidian-local-rest-api', 'manifest.json'));
-  await json(join(vault, '.obsidian', 'plugins', 'wikiship', 'state.json'), { version: 1, context: legacyContext, operations: [] });
   await writeFile(join(vault, 'A.md'), noteA); await writeFile(join(vault, 'B.md'), noteB);
   await writeFile(join(vault, 'large-review.md'), largeNote);
   await writeFile(join(vault, 'src', 'answer.ts'), 'export const answer = 41;\n');
@@ -160,14 +157,7 @@ try {
   assert.equal(section.content, '## Storage\nUse ordinary local files.\n\n');
   const commands = await page.evaluate(() => Object.keys(app.commands.commands).filter(id => id.startsWith('wikiship:')));
   assert.deepEqual(commands.sort(), ['open-changes', 'next-change', 'mark-all-reviewed', 'revert-file', 'recover', 'reconnect-mcp'].map(id => `wikiship:${id}`).sort());
-  for (const name of removedTools) {
-    assert.ok(!listed.tools.some(tool => tool.name === name));
-    assert.equal((await client.callTool({ name, arguments: {} })).isError, true);
-  }
-  assert.equal(await page.locator('.wikiship-context-item').count(), 0);
-  assert.equal(await page.evaluate(() => app.workspace.getLeavesOfType('wikiship-context').length), 0);
-  assert.deepEqual((await state()).context, legacyContext);
-  passed('Live selection and cursor section follow the active note; only six approved commands remain; pin tools and basket are absent; legacy data is preserved');
+  passed('Live selection and cursor section follow the active note; the six review and recovery commands are registered');
 
   const edited = await call('wikiship_patch_section', { path: 'B.md', expectedHash: section.fileHash,
     headingPath: ['Architecture', 'Storage'], content: '## Storage\nAI writes are recorded and reviewable.\n\n', agent: 'native-smoke', session: 'isolated-vault' });
@@ -257,10 +247,9 @@ try {
   await page.evaluate(async () => { await app.plugins.enablePlugin('wikiship'); });
   await page.waitForFunction(() => !!app.plugins.plugins.wikiship?.journal);
   await waitFor(async () => (await state()).operations.length === beforeReload.operations.length, 'persisted journal after reload');
-  assert.deepEqual((await state()).context, legacyContext);
   assert.deepEqual((await state()).operations, beforeReload.operations);
   assert.equal((await call('wikiship_get_editor_state')).activeFile, 'B.md');
-  passed('Plugin reload preserves legacy data and operation history and re-registers live MCP tools');
+  passed('Plugin reload preserves operation history and re-registers live MCP tools');
 
   await client.close(); client = undefined;
   await page.evaluate(async () => { await app.plugins.disablePlugin('obsidian-local-rest-api'); await app.plugins.enablePlugin('obsidian-local-rest-api'); });

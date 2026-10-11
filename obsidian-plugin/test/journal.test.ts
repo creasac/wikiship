@@ -381,26 +381,5 @@ describe('journal validation, lifecycle and isolation', () => {
     expect(journal.state.operations).toHaveLength(2);
     expect(await files.read('three.md')).toBeNull();
   });
-  it('preserves opaque legacy pins and state fields through edits, review, revert and reload', async () => {
-    const { files, store, journal, edit } = await setup();
-    const first = await edit(); await journal.close();
-    const legacy = [{ id: 'legacy-pin', kind: 'section', path: 'missing.md', snapshot: 'old content', extra: { retained: true } }];
-    store.saved!.context = structuredClone(legacy);
-    store.saved!.legacyMetadata = { retained: ['unknown field'] };
-    const read = vi.spyOn(files, 'read');
-    const next = new Journal(store, files); await next.load();
-    expect(read).not.toHaveBeenCalled();
-    (next.state.context as typeof legacy)[0]!.snapshot = 'tampered detached copy';
-    const op = await next.mutate({ kind: 'edit', path: 'note.md', expectedHash: hash('AI text'), from: 0, to: 7, content: 'second' });
-    await next.markReviewed(op.id); await next.revert(op.id);
-    await next.close();
-    const restarted = new Journal(store, files); await restarted.load();
-    expect(restarted.state.context).toEqual(legacy);
-    expect(restarted.state.legacyMetadata).toEqual({ retained: ['unknown field'] });
-    expect(restarted.state.operations[0]).toEqual(first);
-    expect(restarted.state.operations[1]).toMatchObject({ status: 'reverted', review: 'reviewed' });
-    expect(store.saved!.context).toEqual(legacy);
-    expect(read.mock.calls.every(([path]) => path === 'note.md')).toBe(true);
-  });
   it('validates the empty v1 state', () => { expect(stateSchema.parse(emptyState())).toEqual(emptyState()); });
 });

@@ -56,8 +56,6 @@ export default class WikiShip extends Plugin {
       this.app.workspace.onLayoutReady(() => {
         if (this.stopped) return;
         this.connectMcp();
-        // Retire panes restored from older layouts; retain their saved pin data in the journal.
-        for (const leaf of this.app.workspace.getLeavesOfType('wikiship-context')) leaf.detach();
       });
     } catch (error) {
       new Notice(`wikiship could not start: ${message(error)}`, 15000);

@@ -69,24 +69,6 @@ describe('plugin journal lifecycle', () => {
     } finally { instance.onunload(); await waitForJournalShutdown(directory); }
   });
 
-  it('retires restored basket panes without altering legacy data or other panes', async () => {
-    const { root, directory, plugin } = await fixture();
-    const legacy = { version: 1 as const, context: [{ id: 'retained', snapshot: 'legacy data' }], operations: [] };
-    const store = new AtomicStateStore(directory, root);
-    await store.open(); await store.load(); await store.save(legacy); await store.close();
-    const oldPane = { detach: vi.fn() };
-    const instance = plugin(), ready = vi.fn();
-    Object.assign(instance.app.workspace, { onLayoutReady: ready, getLeavesOfType: vi.fn(() => [oldPane]) });
-    await instance.onload();
-    try {
-      ready.mock.calls[0]![0]();
-      expect(instance.app.workspace.getLeavesOfType).toHaveBeenCalledExactlyOnceWith('wikiship-context');
-      expect(oldPane.detach).toHaveBeenCalledOnce();
-      expect(instance.journal.state.context).toEqual(legacy.context);
-      expect(JSON.parse(await readFile(join(directory, 'state.json'), 'utf8'))).toEqual(legacy);
-    } finally { instance.onunload(); await waitForJournalShutdown(directory); }
-  });
-
   it('waits across module reload for accepted writes, then opens their saved state', async () => {
     const { root, directory, plugin } = await fixture();
     const old = plugin(); await old.onload();

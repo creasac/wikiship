@@ -53,8 +53,6 @@ class Context implements WikiShipContext {
 
 }
 
-const REMOVED_PIN_TOOLS = ['wikiship_get_context', 'wikiship_context_add_selection', 'wikiship_context_add_section', 'wikiship_context_add_note', 'wikiship_context_remove', 'wikiship_context_clear'];
-
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => { await Promise.allSettled(closers.splice(0).map(close => close())); });
 
@@ -101,10 +99,6 @@ describe('wikiship through a real MCP SDK client', () => {
     expect(selected.content).toContain('Second paragraph.');
     context.active = 'B.md';
     expect(data(await client.callTool({ name: 'wikiship_get_editor_state', arguments: {} })).activeFile).toBe('B.md');
-    for (const name of REMOVED_PIN_TOOLS) {
-      expect(list.tools.some(tool => tool.name === name)).toBe(false);
-      expect((await client.callTool({ name, arguments: {} })).isError).toBe(true);
-    }
     expect(journal.state.operations).toEqual([]);
 
     const state = data(await client.callTool({ name: 'wikiship_get_file_state', arguments: { path: 'B.md' } }));
@@ -218,7 +212,7 @@ describe('tools-only stdio bridge policy', () => {
   it('forwards allowed MCP calls and refuses host writes, arbitrary commands, and prefix lookalikes', async () => {
     const { client: upstream, server: host, journal } = await fixture();
     let bypassCalls = 0;
-    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikiship_raw_write', ...REMOVED_PIN_TOOLS]) {
+    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikiship_raw_write']) {
       host.registerTool(name, { inputSchema: { path: z.string().optional() } }, async () => {
         bypassCalls++; return { content: [{ type: 'text', text: 'Bypassed' }] };
       });
@@ -233,7 +227,7 @@ describe('tools-only stdio bridge policy', () => {
     closers.push(() => client.close(), () => bridge.close());
     const list = await client.listTools();
     expect(list.tools.map(tool => tool.name).sort()).toEqual([...ALLOWED_TOOLS].sort());
-    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikiship_raw_write', ...REMOVED_PIN_TOOLS]) {
+    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikiship_raw_write']) {
       expect((await client.callTool({ name, arguments: { path: 'A.md' } })).isError).toBe(true);
     }
     expect(bypassCalls).toBe(0);

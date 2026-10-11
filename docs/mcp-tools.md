@@ -55,12 +55,6 @@ Use the current nonempty selection as the starting context. Without a selection,
 
 Section metadata includes a full heading path and range covering the heading and nested subsections until the next heading at the same or higher level. It does not include the body. Use `wikiship_get_file_state` for bounded saved-file excerpts; compare its `fileHash` with the editor hash. If they differ, save or resolve the editor/disk difference and reread before editing. Section edits require a unique full heading path.
 
-## Removal of persistent pins
-
-The basket sidebar, pin commands, and these six APIs are removed: `wikiship_get_context`, `wikiship_context_add_selection`, `wikiship_context_add_section`, `wikiship_context_add_note`, `wikiship_context_remove`, and `wikiship_context_clear`. They are not aliases for live context and calls are rejected. Update prompts and clients to use `wikiship_get_editor_state` / `wikiship_get_selection`, then bounded file reads when needed. There is no cross-note persistent basket replacement.
-
-Update the bridge source alongside the plugin and reconnect the MCP client to refresh its catalog. The bridge exposes 12 wikiship tools plus seven host read tools (19 total), and refuses removed pin tools even if an older upstream plugin still advertises them. Existing saved pins remain opaque in `state.json`; no migration deletes them or the operation journal. No credentials or server configuration need to change.
-
 ## Reading mutation preconditions
 
 `wikiship_get_file_state({path, from?, length?})` returns `exists`, `fileHash`, byte `size`, and `encoding`. UTF-8 files also return a bounded `content` excerpt, its `[from,to)` offsets, `totalLength`, and `nextOffset`. The default excerpt is 20,000 UTF-16 code units; the maximum is 100,000 per call. A missing file returns `exists: false`. Binary files return metadata/hash without their encoded content.
@@ -116,6 +110,6 @@ Review, marking reviewed, revert, and recovery stay in the human Obsidian interf
 
 ## Verified protocol behavior
 
-`npm test` includes real MCP SDK clients over paired in-memory transports. Tests exercise live selection reads, the 12 registered definitions and emitted schemas, section edits, journal snapshots, file operations, safe human recovery, stale hashes, selection drift, and invalid arguments. Bridge tests reject removed pin tools even when an older upstream server offers them. Compatibility tests preserve legacy data through journal operations and reloads.
+`npm test` includes real MCP SDK clients over paired in-memory transports. Tests exercise live selection reads, the 12 registered definitions and emitted schemas, section edits, journal snapshots, file operations, safe human recovery, stale hashes, selection drift, and invalid arguments. Bridge tests reject unapproved host and lookalike tools. Journal tests cover persistence across operations and reloads.
 
-The native acceptance harness targets Local REST API 5.3.0 inside Obsidian 1.13.7. Its current assertions cover 12 registrations, live context, attributed edits, review/revert, persistence, and a 19-tool stdio bridge. See [development and verification](development.md) for how to run it; the earlier native baseline predates the pin removal.
+The native acceptance harness targets Local REST API 5.3.0 inside Obsidian 1.13.7. Its current assertions cover 12 registrations, live context, attributed edits, review/revert, persistence, and a 19-tool stdio bridge. See [development and verification](development.md) for how to run it.

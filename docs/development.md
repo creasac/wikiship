@@ -20,7 +20,7 @@ The Local REST API npm package supplies only its small extension helper and publ
 The tests cover:
 
 - Live selections, source-aware links, unique section ancestry, real Markdown heading parsing, and editor-state races.
-- Opaque legacy pin/state preservation through load, edits, review, revert, and restart; removed MCP names rejected by both plugin and bridge.
+- Journal persistence through edits, review, revert, and restart; unapproved MCP tools are rejected by the bridge.
 - MCP schema publication and calls through an actual MCP SDK client, plus the bridge's fixed allowlist and rejection of untracked writes.
 - Write-ahead intent, concurrent mutation serialization, snapshot integrity, deletion recovery, binary preservation, and safe inverse operations.
 - Persistence failures before/after file writes, restart recovery, uncertain partial moves, inverse recovery direction, shutdown drain, and corrupted saved state.
@@ -28,7 +28,7 @@ The tests cover:
 - Full process exit and forced termination, recovery of interrupted mutation intent, six simultaneous dead-owner reclaimers, delayed reclaimers, old-plugin contention, and preservation of live/foreign/unverifiable locks in synthetic subprocess fixtures.
 - Rapid plugin disable/re-enable across module reloads, accepted-write draining, cancellation during startup, and preservation of live locks when startup or cleanup fails (synthetic vaults, mocked desktop UI).
 - Gutter positions through verified edit/move chains and suppression after unknown edits; complete snapshot paging without splitting Unicode characters or CRLF pairs.
-- Registration of exactly the six supported review/recovery/connection commands; no pin or agent-launch commands.
+- Registration of exactly the six supported review, recovery, and connection commands.
 
 Unit tests use a small Obsidian stub because the npm package contains public declarations rather than the desktop runtime. They do not claim to prove desktop integration by themselves.
 
@@ -49,11 +49,9 @@ The default fixture HTTP port is `29123`; set `WIKISHIP_SMOKE_PORT` if it is alr
 
 The fixture uses local HTTP with a randomly generated API key solely inside the disposable test profile. Normal client setup defaults to the host's authenticated HTTPS endpoint with a trusted certificate. The test's short polling loops wait for actual editor, server, or persistence state.
 
-### Earlier native baseline — 2026-10-01
+### Native acceptance run
 
-The pre-removal baseline passed TypeScript, 87 tests, a production build, and 10 native grouped checks on Obsidian 1.13.7 / Electron 43.3.0 with Local REST API 5.3.0. It had no captured renderer errors. That result applies to the former pin-based workflow and does not verify the current live-context revision.
-
-The updated harness now checks live selection and section metadata, absence of pin commands/tools/sidebar, exact editor updates, gutter and diff review, conflict-safe revert, file operations, paged snapshot review, legacy data and journal persistence, host reload, the 19-tool bridge, and the exact six-command palette. Run it in a disposable profile before claiming native verification for this revision.
+The harness checks live selection and section metadata, exact editor updates, gutter and diff review, conflict-safe revert, file operations, paged snapshot review, journal persistence, host reload, the 19-tool bridge, and the six-command palette. Run it in a disposable profile before claiming native verification for a revision.
 
 The harness writes `artifacts/obsidian-acceptance.json` and `artifacts/obsidian-acceptance.png`. Generated local artifacts are not committed.
 
@@ -68,8 +66,8 @@ Use a disposable ordinary project folder containing Markdown and source files. I
 5. Repeat an AI edit, then type a human change before reverting. Verify a conflict and preservation of the human edit.
 6. Create, move, rename, and delete a file through MCP; inspect and restore it. Repeat delete/restore with a binary file within the 5 MiB limit.
 7. Verify ordinary typing and direct external writes create no AI journal entry.
-8. Disable/re-enable the host and wikiship in either order. Verify tools are cleaned up and registered once, and journal plus any legacy pin data survives. Confirm that pin commands, basket tools, and the basket sidebar are absent.
-9. Verify the palette contains exactly the six commands listed in the [README](../README.md), with no pin or agent-launch commands. Use your configured MCP client directly.
+8. Disable/re-enable the host and wikiship in either order. Verify tools are cleaned up and registered once, and the journal survives.
+9. Verify the palette contains exactly the six commands listed in the [README](../README.md). Use your configured MCP client directly.
 
 ## Operational notes
 

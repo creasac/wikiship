@@ -16,7 +16,7 @@ beforeAll(async () => {
     import { hostname } from 'node:os';
     import { AtomicStateStore } from './provenance/storage';
     import { Journal } from './provenance/journal';
-    import { emptyState, id, textSnapshot } from './model';
+    import { id, textSnapshot } from './model';
     const [root, mode] = process.argv.slice(2), directory = root + '/.obsidian/plugins/wikiship';
     const send = message => new Promise(resolve => process.send(message, resolve));
     let store, journal, resume;
@@ -55,8 +55,6 @@ beforeAll(async () => {
           await send({ opened: true, pid: process.pid }); return;
         }
         store = new AtomicStateStore(directory, root); await store.open();
-        // Seed legacy compatibility data directly; no pin API remains.
-        if (mode === 'seed' || mode === 'pending') await store.save({ ...emptyState(), context: [{ snapshot: 'synthetic saved pin' }] });
         journal = new Journal(store, files); await journal.load();
         await send({ opened: true, pid: process.pid, state: journal.state });
         if (mode === 'pending') await journal.mutate({ kind: 'create', path: 'synthetic.md', content: 'synthetic written text' });
@@ -73,7 +71,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 afterAll(async () => { await rm(scripts, { recursive: true, force: true }); });
-interface Reply { ready?: boolean; opened?: boolean; pid?: number; error?: string; phase?: string; closed?: boolean; state?: { context: { snapshot: string }[]; operations: { status: string }[] }; }
+interface Reply { ready?: boolean; opened?: boolean; pid?: number; error?: string; phase?: string; closed?: boolean; state?: { version: number; operations: { status: string }[] }; }
 function writer(root: string, mode = 'normal') {
   const child = fork(fixture, [root, mode], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] }); processes.push(child);
   const messages: Reply[] = [], waiters: ((reply: Reply) => void)[] = [];
@@ -86,14 +84,12 @@ async function root() { const path = await mkdtemp(join(tmpdir(), 'wikiship-proc
 async function lock(path: string) { return readFile(join(path, '.obsidian/plugins/wikiship/state.lock'), 'utf8'); }
 
 describe('journal ownership across real process lifetimes', () => {
-  it.each(['exit', 'kill'])('recovers after %s without losing legacy context data', async stop => {
-    const dir = await root(), old = writer(dir, 'seed'); expect((await old.open()).opened).toBe(true);
-    const before = await readFile(join(dir, '.obsidian/plugins/wikiship/state.json'), 'utf8');
+  it.each(['exit', 'kill'])('recovers after %s with an intact journal', async stop => {
+    const dir = await root(), old = writer(dir); expect((await old.open()).opened).toBe(true);
     if (stop === 'exit') old.child.send('exit'); else old.child.kill('SIGKILL'); await old.exited;
     const next = writer(dir), opened = await next.open();
     expect(opened.opened, opened.error).toBe(true);
-    expect(opened.state?.context[0]?.snapshot).toBe('synthetic saved pin');
-    expect(await readFile(join(dir, '.obsidian/plugins/wikiship/state.json'), 'utf8')).toBe(before);
+    expect(opened.state?.operations).toEqual([]);
     next.child.send('close'); expect(await next.next()).toEqual({ closed: true }); await next.exited;
     await expect(lock(dir)).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -106,7 +102,7 @@ describe('journal ownership across real process lifetimes', () => {
     expect(await readFile(join(dir, 'synthetic.md'), 'utf8')).toBe('synthetic written text');
   });
 
-  it.each(['seed', 'legacy'])('admits only one of six simultaneous reclaimers of a dead %s owner', async mode => {
+  it.each(['normal', 'legacy'])('admits only one of six simultaneous reclaimers of a dead %s owner', async mode => {
     const dir = await root(), old = writer(dir, mode); expect((await old.open()).opened).toBe(true);
     old.child.kill('SIGKILL'); await old.exited;
     const contenders = Array.from({ length: 6 }, () => writer(dir));
@@ -116,7 +112,6 @@ describe('journal ownership across real process lifetimes', () => {
     const winners = replies.filter(reply => reply.opened); expect(winners).toHaveLength(1);
     const owned = await lock(dir); expect(JSON.parse(owned).pid).toBe(winners[0]!.pid);
     const extra = writer(dir); expect((await extra.open()).opened).toBe(false); expect(await lock(dir)).toBe(owned);
-    if (mode === 'seed') expect(winners[0]!.state?.context[0]?.snapshot).toBe('synthetic saved pin');
   });
 
   it('recovers a crash after publishing the guard but before the legacy lock', async () => {

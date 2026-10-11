@@ -10,7 +10,7 @@ The supplied workspace was empty. Its `.git` mount initially had no repository m
 
 ## Current milestones
 
-1. Plugin skeleton and live context: current editor selection/cursor/file, section metadata, source-aware link resolution, and guarded editor targets. Persistent pins and their sidebar, commands, menus, and APIs are removed; legacy saved data is preserved opaquely.
+1. Plugin skeleton and live context: current editor selection/cursor/file, section metadata, source-aware link resolution, and guarded editor targets.
 2. MCP extension: validated tool schemas, version/load handling, authenticated host transport, allowlisted client adapter, real MCP SDK client verification.
 3. Provenance: serialized operations; durable intent before mutation; before/after snapshots and hashes; guarded create/edit/delete/move; restart recovery and explicit uncertain states.
 4. Review: sidebar, before/after diff, review state, conservative revert and file-wide revert; subtle interactive CodeMirror gutter markers. Never write markers into notes.
