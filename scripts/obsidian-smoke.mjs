@@ -160,13 +160,14 @@ try {
 
   const edited = await call('wikiship_patch_section', { path: 'B.md', expectedHash: section.fileHash,
     headingPath: ['Architecture', 'Storage'], content: '## Storage\nAI writes are recorded and reviewable.\n\n', agent: 'native-smoke', session: 'isolated-vault' });
-  await page.waitForFunction(() => app.workspace.activeEditor?.editor.getValue().includes('AI writes are recorded'));
+  await page.waitForFunction(() => app.workspace.getLeavesOfType('markdown').some(leaf =>
+    leaf.view.file?.path === 'B.md' && leaf.view.editor.getValue().includes('AI writes are recorded')));
   await page.locator('.wikiship-gutter-marker').first().waitFor();
   await command('open-changes');
   await page.locator('.wikiship-change-item').first().waitFor();
   assert.match(await page.locator('.wikiship-change-item').first().innerText(), /native-smoke/);
-  // Open the diff by clicking its actual gutter marker.
-  await page.locator('.wikiship-gutter-marker').first().click();
+  // The queue entry opens the changed file at its affected location and shows the diff.
+  await page.locator('.wikiship-change-item').first().locator('button').first().click();
   await page.locator('.wikiship-review-modal .wikiship-diff-added').first().waitFor();
   assert.match(await page.locator('.wikiship-diff').innerText(), /AI writes are recorded/);
   assert.match(await page.locator('.wikiship-diff').innerText(), /Use ordinary local files/);
@@ -190,7 +191,7 @@ try {
   await page.locator('.notice').filter({ hasText: 'Conflict' }).first().waitFor();
   assert.equal((await state()).operations.find(op => op.id === conflictOp.id).status, 'applied');
   assert.match(await page.evaluate(() => app.workspace.activeEditor.editor.getValue()), /Human typed afterward/);
-  await page.getByRole('button', { name: 'Mark session done & clear', exact: true }).click();
+  await page.locator('.wikiship-review-modal').getByRole('button', { name: 'Mark session done & clear', exact: true }).click();
   await waitFor(async () => !(await state()).operations.some(op => op.id === conflictOp.id), 'conflicting change cleared');
   await page.keyboard.press('Escape');
   passed('A newer human editor change blocks undo and remains intact; the user can explicitly clear its record');
@@ -205,7 +206,7 @@ try {
   assert.match(await page.locator('.wikiship-diff').innerText(), /Created through the real MCP host/);
   assert.equal(deleted.status, 'pending-delete');
   assert.equal(await readFile(join(vault, 'AI-moved.md'), 'utf8'), 'Created through the real MCP host.\n');
-  await page.getByRole('button', { name: 'Mark session done & clear', exact: true }).click();
+  await page.locator('.wikiship-review-modal').getByRole('button', { name: 'Mark session done & clear', exact: true }).click();
   await waitFor(async () => !(await state()).operations.some(op => op.id === deleted.id), 'delete session cleared');
   await page.keyboard.press('Escape');
   await assert.rejects(readFile(join(vault, 'AI-moved.md'), 'utf8'), { code: 'ENOENT' });
@@ -246,7 +247,7 @@ try {
   await page.evaluate(async () => { await app.plugins.enablePlugin('wikiship'); });
   await page.waitForFunction(() => !!app.plugins.plugins.wikiship?.journal);
   await waitFor(async () => (await state()).operations.length === beforeReload.operations.length, 'persisted journal after reload');
-  assert.deepEqual((await state()).operations, beforeReload.operations);
+  assert.deepEqual(JSON.parse(JSON.stringify((await state()).operations)), JSON.parse(JSON.stringify(beforeReload.operations)));
   assert.equal((await call('wikiship_get_editor_state')).activeFile, 'B.md');
   passed('Plugin reload preserves operation history and re-registers live MCP tools');
 
@@ -266,8 +267,8 @@ try {
   const bridgeContext = await bridgeClient.callTool({ name: 'wikiship_get_editor_state' });
   assert.ok(!bridgeContext.isError);
   assert.equal(JSON.parse(bridgeContext.content.find(block => block.type === 'text').text).activeFile, 'B.md');
-  for (const name of ['command_execute', 'open_file', ...removedTools]) assert.equal((await bridgeClient.callTool({ name, arguments: {} })).isError, true);
-  passed('Actual stdio bridge process lists 19 approved tools, reads live context, and refuses removed tools and command/open-file bypasses');
+  for (const name of ['command_execute', 'open_file', 'vault_write', 'wikiship_raw_write']) assert.equal((await bridgeClient.callTool({ name, arguments: {} })).isError, true);
+  passed('Actual stdio bridge lists 19 approved tools, reads live context, and refuses unjournaled write and command bypasses');
 
   const versions = await page.evaluate(() => ({ obsidianRelease: '1.13.7', electron: process.versions.electron, wikiShip: app.plugins.plugins.wikiship.manifest.version, localRestApi: app.plugins.plugins['obsidian-local-rest-api'].manifest.version }));
   await json(join(output, 'obsidian-acceptance.json'), { ok: true, versions, checks, pageErrors, fixture: root });

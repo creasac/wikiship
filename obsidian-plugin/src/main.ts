@@ -59,14 +59,17 @@ export default class WikiShip extends Plugin {
         }
       });
       this.connection.setAttribute('aria-label', 'Open WikiShip AI Changes');
-      let hasQueuedChanges = this.journal.state.operations.length > 0;
-      if (hasQueuedChanges) this.run(() => this.openView(CHANGES_VIEW_TYPE));
+      const reviewable = () => this.journal.state.operations.some(op => !['prepared', 'committing-delete'].includes(op.status));
+      let hasReviewableChanges = reviewable();
+      if (hasReviewableChanges) this.run(() => this.openView(CHANGES_VIEW_TYPE));
       this.register(this.journal.subscribe(() => {
-        const hasChanges = this.journal.state.operations.length > 0;
-        if (hasChanges && !hasQueuedChanges) this.run(() => this.openView(CHANGES_VIEW_TYPE));
-        hasQueuedChanges = hasChanges;
         const count = this.journal.state.operations.length;
-        this.connection?.setText(hasChanges ? `wikiship · ${count} change${count === 1 ? '' : 's'} · review` : this.api ? 'wikiship · MCP ready' : 'wikiship · enable Local REST API');
+        const hasReviewable = reviewable();
+        // Do not steal editor focus while a guarded mutation is between its
+        // write-ahead save and its final editor-target check.
+        if (hasReviewable && !hasReviewableChanges) this.run(() => this.openView(CHANGES_VIEW_TYPE));
+        hasReviewableChanges = hasReviewable;
+        this.connection?.setText(count ? `wikiship · ${count} change${count === 1 ? '' : 's'} · review` : this.api ? 'wikiship · MCP ready' : 'wikiship · enable Local REST API');
       }));
       this.addRibbonIcon(WIKISHIP_ICON_ID, 'wikiship AI Changes', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
       this.addCommands();
