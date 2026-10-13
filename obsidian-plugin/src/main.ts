@@ -8,7 +8,7 @@ import { trackJournalShutdown, waitForJournalShutdown } from './provenance/lifec
 import { AtomicStateStore, DEFAULT_EXCLUSIONS, PathPolicy } from './provenance/storage';
 import { ObsidianFiles } from './provenance/obsidian-files';
 import { EditorContext } from './context/editor';
-import { ChangesView, ChangeModal, CHANGES_VIEW_TYPE, nextChange } from './review/views';
+import { ChangesView, FileReviewModal, CHANGES_VIEW_TYPE, nextChange } from './review/views';
 import { createReviewExtension } from './review/gutter';
 import { registerTools } from './mcp/tools';
 
@@ -45,7 +45,7 @@ export default class WikiShip extends Plugin {
       this.context = new EditorContext(this.app, path => files.readContext(path));
       registerWikiShipIcon();
       this.registerView(CHANGES_VIEW_TYPE, leaf => new ChangesView(leaf, this.journal));
-      const gutter = createReviewExtension(this.journal, id => new ChangeModal(this.app, this.journal, id).open());
+      const gutter = createReviewExtension(this.journal, id => new FileReviewModal(this.app, this.journal, id).open());
       this.registerEditorExtension(gutter.extension);
       this.register(gutter.destroy);
       this.connection = this.addStatusBarItem();
@@ -92,8 +92,8 @@ export default class WikiShip extends Plugin {
   }
   private addCommands() {
     this.addCommand({ id: 'open-changes', name: 'Show AI Changes', callback: () => this.run(() => this.openView(CHANGES_VIEW_TYPE)) });
-    this.addCommand({ id: 'next-change', name: 'Next AI change to review', callback: () => this.run(() => nextChange(this.app, this.journal)) });
-    this.addCommand({ id: 'complete-changes', name: 'Mark all AI changes done and clear', callback: () => this.run(() => this.journal.completeAll()) });
+    this.addCommand({ id: 'next-change', name: 'Review next AI file', callback: () => this.run(() => nextChange(this.app, this.journal)) });
+    this.addCommand({ id: 'complete-changes', name: 'Approve all changes', callback: () => this.run(() => this.journal.completeAll()) });
     this.addCommand({ id: 'undo-changes', name: 'Undo all AI changes', callback: () => this.run(() => this.journal.undoAll()) });
     this.addCommand({ id: 'recover', name: 'Recover interrupted operations', callback: () => this.run(() => this.journal.recover()) });
     this.addCommand({ id: 'reconnect-mcp', name: 'Reconnect Local REST API', callback: () => this.connectMcp() });
@@ -138,7 +138,7 @@ class WikiShipSettings extends PluginSettingTab {
   display() {
     this.containerEl.empty();
     this.containerEl.createEl('h2', { text: 'wikiship' });
-    this.containerEl.createEl('p', { text: 'Connect through Local REST API 5.3.0 or later. Use the wikiship MCP bridge to restrict agents to tracked mutations. Pending changes and their before/after content stay in this vault’s plugin data until you undo them or mark them done and clear them.' });
+    this.containerEl.createEl('p', { text: 'Connect through Local REST API 5.3.0 or later. Use the wikiship MCP bridge to restrict agents to tracked mutations. Pending changes and their before/after content stay in this vault’s plugin data until you undo or approve them.' });
     new Setting(this.containerEl).setName('Excluded directory names').setDesc('One name per line. Applies only to wikiship reads and writes. Obsidian settings are unchanged. Reload wikiship after editing.').addTextArea(input => input.setValue(this.plugin.settings.exclusions.join('\n')).onChange(async value => {
       const exclusions = value.split('\n').map(line => line.trim()).filter(Boolean);
       if (exclusions.some(name => name.includes('/') || name.includes('\\') || name === '.' || name === '..')) return;

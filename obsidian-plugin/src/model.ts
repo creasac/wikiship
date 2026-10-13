@@ -74,7 +74,7 @@ export interface WorkspaceFiles {
   read(path: string): Promise<Snapshot | null>;
   // The adapter must recheck content and any open editors at the point of writing.
   apply(op: Operation, reverse: boolean): Promise<void>;
-  /** Move a confirmed pending deletion into Obsidian's trash, after rechecking its hash. */
+  /** Move an approved pending deletion to trash, after rechecking its hash. */
   trash(path: string, expected: Snapshot): Promise<void>;
 }
 export type ContextReader = (path: string) => Promise<{ text: string; mtime?: number; source: 'editor' | 'disk' }>;

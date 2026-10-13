@@ -21,7 +21,7 @@ The supplied workspace was empty. Its `.git` mount initially had no repository m
 - Only calls through wikiship mutation tools receive AI attribution. Watcher events are not a source of attribution.
 - Require expected file SHA-256 for edits/deletes/moves; create must assert absence. Never overwrite a destination.
 - Undo requires the current file to match the recorded after hash. This may refuse unrelated later human edits, but preserves all newer work.
-- Keep before/after content only in the pending review queue. Explicit undo or mark-done clears it; do not retain a WikiShip history after clearing. Fail closed if journal persistence fails.
+- Keep before/after content only in the pending review queue. Explicit undo or approval clears it; do not retain a WikiShip history after clearing. Fail closed if journal persistence fails.
 - Capture current selection offsets, editor contents, and hashes; recheck them before writing. Locate sections by unique heading paths and refuse ambiguous headings.
 - Block traversal, symlinks, vault configuration/internal paths, and noisy generated directories through wikiship only. Do not edit the user's Obsidian configuration.
 

@@ -1,7 +1,7 @@
 {
   "id": "wikiship",
   "name": "wikiship",
-  "version": "0.1.3",
+  "version": "0.0.9",
   "minAppVersion": "1.13.1",
   "description": "Share live editor context and review tracked changes from external AI agents.",
   "author": "wikiship",

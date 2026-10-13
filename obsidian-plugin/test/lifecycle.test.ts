@@ -29,7 +29,7 @@ vi.mock('../src/provenance/obsidian-files', () => ({ ObsidianFiles: class {
   async trash(path: string) { this.files.delete(path); }
 } }));
 vi.mock('../src/context/editor', () => ({ EditorContext: class {} }));
-vi.mock('../src/review/views', () => ({ ChangesView: class {}, ChangeModal: class {}, RevertFileModal: class {}, CHANGES_VIEW_TYPE: 'changes', nextUnreviewed: vi.fn() }));
+vi.mock('../src/review/views', () => ({ ChangesView: class {}, FileReviewModal: class {}, RevertFileModal: class {}, CHANGES_VIEW_TYPE: 'changes', nextUnreviewed: vi.fn() }));
 vi.mock('../src/review/gutter', () => ({ createReviewExtension: () => ({ extension: [], destroy() {} }) }));
 vi.mock('../src/mcp/tools', () => ({ registerTools: vi.fn() }));
 
@@ -63,8 +63,8 @@ describe('plugin journal lifecycle', () => {
     try {
       expect(commands.mock.calls.map(([command]) => ({ id: command.id, name: command.name }))).toEqual([
         { id: 'open-changes', name: 'Show AI Changes' },
-        { id: 'next-change', name: 'Next AI change to review' },
-        { id: 'complete-changes', name: 'Mark all AI changes done and clear' },
+        { id: 'next-change', name: 'Review next AI file' },
+        { id: 'complete-changes', name: 'Approve all changes' },
         { id: 'undo-changes', name: 'Undo all AI changes' },
         { id: 'recover', name: 'Recover interrupted operations' },
         { id: 'reconnect-mcp', name: 'Reconnect Local REST API' },

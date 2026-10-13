@@ -72,13 +72,13 @@ All paths are vault-relative, with `/` separators. All editing offsets are zero-
 | `wikiship_insert_at_cursor` | `path`, `expectedHash`, `offset`, `content` | Verify the active cursor and file still match, then insert. |
 | `wikiship_patch_section` | `path`, `expectedHash`, `headingPath`, `content` | Replace the unique named section in the active Markdown editor, including its heading. |
 | `wikiship_create_file` | `path`, `content` | Create a UTF-8 file only if absent. |
-| `wikiship_delete_file` | `path`, `expectedHash` | Stage a deletion for human review. The file remains in the vault until the session is marked done; then it moves to Obsidian trash. |
+| `wikiship_delete_file` | `path`, `expectedHash` | Stage a deletion for human review. The file remains in the vault until a human approves the batch; then it moves to trash. |
 | `wikiship_move_file` | `path`, `target`, `expectedHash` | Move to an absent path. |
 | `wikiship_rename_file` | `path`, `name`, `expectedHash` | Rename within the same directory; `name` cannot contain `/` or `\`. |
 
 Every mutation also accepts optional `agent` and `session` strings. These are **self-reported labels**, not authenticated client identity. Reuse one `session` label for related work so the person can undo or clear those changes together in AI Changes. Calls without a session label appear in one unlabeled group. Authoritative provenance means the operation passed through a WikiShip mutation tool. The host extension callback does not provide trustworthy client/session identity.
 
-Successful calls return the operation ID, paths, kind, status, before/after hashes, and attribution labels. Pending change content remains in the local journal until a person undoes it or marks its session done and clears it. A conflict, invalid argument, or write failure returns an MCP `isError` result. Do not blindly retry a failed mutation: inspect current state and the operation status first. An uncertain operation blocks subsequent writes until the human runs recovery.
+Successful calls return the operation ID, paths, kind, status, before/after hashes, and attribution labels. Pending change content remains in the local journal until a person undoes it or approves its batch. A conflict, invalid argument, or write failure returns an MCP `isError` result. Do not blindly retry a failed mutation: inspect current state and the operation status first. An uncertain operation blocks subsequent writes until the human runs recovery.
 
 Example: read `design.md`, then replace its first five UTF-16 code units using the returned hash:
 
@@ -106,7 +106,7 @@ A section path includes every ancestor, for example `["Architecture", "Storage"]
 
 `wikiship_get_changes({path?, offset?, limit?})` returns newest-first summaries, `total`, and `nextOffset`. The default limit is 20 and the maximum is 100. Supplying `path` matches either side of a move. Summaries include hashes and whether a deletion awaits human approval; they do not expose file content or approval/undo actions.
 
-Review, undo, mark-done, and recovery stay in the human Obsidian interface. An agent cannot approve or clear its own changes through the bridge. Undo requires the current file state to match the recorded result and refuses newer edits. Clearing removes the journal content; WikiShip cannot restore cleared changes.
+Review, undo, approval, and recovery stay in the human Obsidian interface. An agent cannot approve or clear its own changes through the bridge. Undo requires the current file state to match the recorded result and refuses newer edits. Approval removes the journal content; WikiShip cannot restore cleared changes.
 
 ## Verified protocol behavior
 

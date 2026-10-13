@@ -85,7 +85,7 @@ export class Journal {
         agent: input.agent, session: input.session, from: input.from, to: input.to });
       await this.updateOperation(op); // Durable write-ahead intent; no filesystem mutation before this.
       // Deletion is intentionally staged. The file remains in the vault until a
-      // human confirms the session from AI Changes, where it will go to Obsidian trash.
+      // human approves the batch from AI Changes, where it will go to trash.
       if (input.kind === 'delete') return structuredClone(op);
       try { await guard?.(); }
       catch (error) {
@@ -237,7 +237,7 @@ export class Journal {
         const latest = await this.files.read(op.path).catch(() => op.before);
         op.status = latest === null ? 'pending-delete' : latest?.hash === op.before?.hash ? 'pending-delete' : 'uncertain';
         op.error = String(error); await this.updateOperation(op);
-        throw new Error(`Could not move ${op.path} to Obsidian trash. Its review data is still available: ${String(error)}`);
+        throw new Error(`Could not move ${op.path} to trash. Its review data is still available: ${String(error)}`);
       }
     }
     const ids = new Set(selected.map(op => op.id));
@@ -245,7 +245,7 @@ export class Journal {
     return { cleared: ids.size };
   }
 
-  /** Accept one session; confirmed deletions go to Obsidian trash before records are erased. */
+  /** Approve one batch; staged deletions go to trash before records are erased. */
   async completeSession(session?: string) { return this.run(() => this.complete(op => this.matchesSession(op, session))); }
   /** Accept every queued session and erase all review snapshots. */
   async completeAll() { return this.run(() => this.complete(() => true)); }

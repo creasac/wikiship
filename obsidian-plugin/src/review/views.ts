@@ -47,9 +47,115 @@ async function openChangeLocation(app: App, journal: Journal, op: Operation) {
   await openLocation(app, path, location?.from, location?.to);
 }
 
-async function inspectChange(app: App, journal: Journal, op: Operation) {
-  await openChangeLocation(app, journal, op);
-  new ChangeModal(app, journal, op.id).open();
+interface FileReviewGroup {
+  operations: Operation[];
+  path: string;
+  first: Operation;
+  last: Operation;
+  category: 'Added' | 'Updated' | 'Deleted' | 'Moved' | 'Needs review';
+  removed: number;
+  added: number;
+  lineTotalsAvailable: boolean;
+  conflict: boolean;
+}
+
+interface ReviewBatch { session?: string; operations: Operation[]; files: FileReviewGroup[]; }
+
+function visibleLines(value: string): number {
+  if (!value) return 0;
+  const lines = value.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  return lines.length;
+}
+
+function lineTotals(before: Snapshot | null, after: Snapshot | null) {
+  if (before?.encoding === 'base64' || after?.encoding === 'base64') return { removed: 0, added: 0, available: false };
+  const parts = diffLines(before?.data ?? '', after?.data ?? '', { timeout: 1000 });
+  if (!parts) return { removed: 0, added: 0, available: false };
+  return { ...parts.reduce((total, part) => {
+    if (part.removed) total.removed += visibleLines(part.value);
+    if (part.added) total.added += visibleLines(part.value);
+    return total;
+  }, { removed: 0, added: 0 }), available: true };
+}
+
+function reviewBatches(operations: Operation[]): ReviewBatch[] {
+  const batches = new Map<string | undefined, Operation[]>();
+  for (const op of operations) {
+    const group = batches.get(op.session) ?? [];
+    group.push(op); batches.set(op.session, group);
+  }
+  return [...batches].map(([session, items]) => {
+    const groups: FileReviewGroup[] = [];
+    const owner = new Map<string, FileReviewGroup>();
+    for (const op of items) {
+      const group = owner.get(op.path);
+      if (group) {
+        group.operations.push(op); group.last = op;
+        if (op.kind === 'move' && op.target) {
+          owner.delete(op.path); owner.set(op.target, group);
+        }
+        group.path = displayFilePath(group.operations);
+      } else {
+        const created: FileReviewGroup = {
+          operations: [op], path: op.kind === 'move' ? `${op.path} → ${op.target}` : op.path,
+          first: op, last: op, category: 'Updated', removed: 0, added: 0, lineTotalsAvailable: true, conflict: false,
+        };
+        groups.push(created); owner.set(op.kind === 'move' && op.target ? op.target : op.path, created);
+      }
+    }
+    for (const file of groups) {
+      const chain = file.operations;
+      file.conflict = chain.some(op => !['applied', 'pending-delete'].includes(op.status)) ||
+        chain.slice(1).some((op, index) => chain[index]!.after?.hash !== op.before?.hash);
+      const before = file.first.before, after = file.last.after;
+      if (file.conflict) file.category = 'Needs review';
+      else if (after === null) file.category = 'Deleted';
+      else if (before === null) file.category = 'Added';
+      else if (chain.some(op => op.kind === 'move')) file.category = 'Moved';
+      else file.category = 'Updated';
+      if (!file.conflict) {
+        const totals = lineTotals(before, after);
+        file.removed = totals.removed; file.added = totals.added; file.lineTotalsAvailable = totals.available;
+      } else file.lineTotalsAvailable = false;
+    }
+    return { session, operations: items, files: groups };
+  }).sort((a, b) => latestTimestamp(b.operations).localeCompare(latestTimestamp(a.operations)));
+}
+
+function displayFilePath(operations: Operation[]) {
+  const firstPath = operations[0]!.path;
+  const last = operations.at(-1)!;
+  const finalPath = last.kind === 'move' ? last.target! : last.path;
+  return firstPath === finalPath ? firstPath : `${firstPath} → ${finalPath}`;
+}
+
+function batchCounts(batch: ReviewBatch) {
+  const counts = { Added: 0, Updated: 0, Deleted: 0, Moved: 0, 'Needs review': 0 };
+  for (const file of batch.files) counts[file.category]++;
+  return counts;
+}
+
+function batchLabel(batch: ReviewBatch) {
+  const counts = batchCounts(batch);
+  return (Object.entries(counts) as [keyof typeof counts, number][]).filter(([, count]) => count)
+    .map(([label, count]) => `${count} ${label.toLowerCase()}`).join(' · ');
+}
+
+function lineCount(value: number, sign: '−' | '+') { return value ? `${sign} ${value}` : ''; }
+
+function formatAgents(operations: Operation[]) {
+  const agents = [...new Set(operations.map(op => op.agent).filter((name): name is string => !!name))];
+  return agents.length ? agents.join(', ') : 'Agent not recorded';
+}
+
+function latestTimestamp(operations: Operation[]) {
+  return operations.reduce((latest, op) => op.timestamp > latest ? op.timestamp : latest, operations[0]!.timestamp);
+}
+function formatBatchTime(operations: Operation[]) { return new Date(latestTimestamp(operations)).toLocaleString(); }
+
+async function undoFile(journal: Journal, group: FileReviewGroup) {
+  for (const op of [...group.operations].reverse()) await journal.undo(op.id);
 }
 
 export class ChangesView extends ItemView {
@@ -74,62 +180,67 @@ export class ChangesView extends ItemView {
     if (!all.length) {
       root.createEl('p', { cls: 'wikiship-muted', text: 'Changes made through WikiShip appear here. Your ordinary edits are never labeled as AI changes.' }); return;
     }
-    root.createEl('div', { cls: 'wikiship-pending-banner', text: `${all.length} change${all.length === 1 ? '' : 's'} awaiting review. They stay here until you undo them or mark them done and clear them.` });
+    const batches = reviewBatches(all);
     const tools = root.createDiv('wikiship-actions');
-    action(tools, 'Next change', () => nextChange(this.app, this.journal));
+    action(tools, 'Review next file', () => nextChange(this.app, this.journal));
     action(tools, 'Undo all changes', async () => {
       const result = await this.journal.undoAll(); new Notice(`Undid ${result.undone} change(s). Review data cleared.`);
     }, 'mod-warning');
-    action(tools, 'Mark all done & clear', async () => {
+    action(tools, 'Approve all changes', async () => {
       const deletes = all.filter(op => op.kind === 'delete' && op.status === 'pending-delete').length;
       const result = await this.journal.completeAll();
-      new Notice(`Cleared ${result.cleared} change(s)${deletes ? `; moved ${deletes} file(s) to Obsidian trash` : ''}.`);
+      new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} file(s) to trash` : ''}.`);
     }, 'mod-cta');
-    const groups = new Map<string | undefined, Operation[]>();
-    for (const op of [...all].reverse()) {
-      const group = groups.get(op.session) ?? [];
-      group.push(op); groups.set(op.session, group);
-    }
-    for (const [session, operations] of groups) {
+    for (const batch of batches) {
+      const { session, operations } = batch;
       const section = root.createDiv('wikiship-session-group');
       const title = session || 'Unlabelled session';
-      section.createEl('h5', { text: `${title} · ${operations.length} change(s)`, cls: 'wikiship-path' });
+      section.createEl('h5', { text: title, cls: 'wikiship-path' });
+      section.createEl('div', { cls: 'wikiship-muted wikiship-batch-meta', text: `${formatBatchTime(operations)} · ${formatAgents(operations)}` });
+      const linesAvailable = batch.files.every(file => file.lineTotalsAvailable);
+      const totals = batch.files.reduce((sum, file) => ({ removed: sum.removed + file.removed, added: sum.added + file.added }), { removed: 0, added: 0 });
+      const lineSummary = linesAvailable
+        ? [totals.removed ? `− ${totals.removed} removed` : '', totals.added ? `+ ${totals.added} added` : ''].filter(Boolean).join(' · ')
+        : 'line totals unavailable';
+      section.createEl('div', { cls: 'wikiship-batch-summary', text: `${batch.files.length} file${batch.files.length === 1 ? '' : 's'}${batchLabel(batch) ? ` · ${batchLabel(batch)}` : ''}${lineSummary ? ` · ${lineSummary}` : ''}` });
       const sessionActions = section.createDiv('wikiship-actions');
       action(sessionActions, 'Undo session', async () => {
         const result = await this.journal.undoSession(session); new Notice(`Undid ${result.undone} change(s). Review data cleared.`);
       }, 'mod-warning');
-      action(sessionActions, 'Mark session done & clear', async () => {
+      action(sessionActions, 'Approve session', async () => {
         const deletes = operations.filter(op => op.kind === 'delete' && op.status === 'pending-delete').length;
         const result = await this.journal.completeSession(session);
-        new Notice(`Cleared ${result.cleared} change(s)${deletes ? `; moved ${deletes} file(s) to Obsidian trash` : ''}.`);
+        new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} file(s) to trash` : ''}.`);
       }, 'mod-cta');
-      const byPath = new Map<string, Operation[]>();
-      for (const op of operations) {
-        const path = op.target ?? op.path, changes = byPath.get(path) ?? [];
-        changes.push(op); byPath.set(path, changes);
-      }
-      for (const [path, changes] of byPath) {
+      const columns = section.createDiv('wikiship-file-columns');
+      columns.createSpan({ text: 'File' }); columns.createSpan({ text: 'Type' });
+      columns.createSpan({ text: '− Removed' }); columns.createSpan({ text: '+ Added' }); columns.createSpan({ text: '' });
+      for (const fileGroup of batch.files) {
         const file = section.createDiv('wikiship-file-group');
-        file.createEl('h6', { text: path, cls: 'wikiship-path' });
-        for (const op of changes) this.row(file, op);
+        const row = file.createDiv('wikiship-file-row');
+        action(row, fileGroup.path, () => inspectFile(this.app, this.journal, fileGroup), 'wikiship-text-button wikiship-file-link');
+        row.createSpan({ cls: `wikiship-file-kind${fileGroup.conflict ? ' wikiship-warning' : ''}`, text: fileGroup.category });
+        row.createSpan({ cls: 'wikiship-line-total', text: fileGroup.lineTotalsAvailable ? lineCount(fileGroup.removed, '−') : '—' });
+        row.createSpan({ cls: 'wikiship-line-total', text: fileGroup.lineTotalsAvailable ? lineCount(fileGroup.added, '+') : '—' });
+        action(row, 'Undo file', async () => { await undoFile(this.journal, fileGroup); new Notice('File changes undone and review data cleared.'); }, 'wikiship-text-button wikiship-muted');
+        if (fileGroup.conflict) row.createEl('p', { cls: 'wikiship-warning wikiship-file-warning', text: 'Recorded steps do not form a verified sequence. Open review to inspect each step.' });
       }
     }
   }
-  private row(parent: HTMLElement, op: Operation) {
-    const row = parent.createDiv('wikiship-change-item');
-    action(row, operationLabel(op), () => inspectChange(this.app, this.journal, op), 'wikiship-text-button');
-    row.createSpan({ cls: `wikiship-status wikiship-status-${op.status}`, text: op.status === 'pending-delete' ? 'Awaiting deletion approval' : op.status });
-    action(row, 'Undo', async () => { await this.journal.undo(op.id); new Notice('Change undone and review data cleared.'); }, 'wikiship-text-button wikiship-muted');
-    row.createEl('div', { cls: 'wikiship-muted wikiship-change-time', text: `${new Date(op.timestamp).toLocaleString()}${op.agent ? ` · ${op.agent}` : ''}` });
-    if (op.error) row.createEl('p', { cls: 'wikiship-warning', text: op.error });
-  }
+}
+
+async function inspectFile(app: App, journal: Journal, group: FileReviewGroup) {
+  const latest = group.operations.at(-1)!;
+  lastInspected.set(journal, latest.id);
+  await openChangeLocation(app, journal, latest);
+  new FileReviewModal(app, journal, latest.id).open();
 }
 
 function snapshotPanel(parent: HTMLElement, label: string, snapshot: Snapshot | null) {
   const panel = parent.createDiv('wikiship-snapshot');
   panel.dataset.wikishipSnapshot = label.toLowerCase();
   panel.createEl('h5', { text: label });
-  if (!snapshot) { panel.createEl('p', { cls: 'wikiship-muted', text: label === 'After approval' ? 'File moves to Obsidian trash when approved' : 'File does not exist' }); return; }
+  if (!snapshot) { panel.createEl('p', { cls: 'wikiship-muted', text: label === 'After approval' ? 'Moves to trash when approved' : 'File does not exist' }); return; }
   if (snapshot.encoding === 'base64') {
     panel.createEl('p', { cls: 'wikiship-muted', text: `Binary file · ${snapshot.size.toLocaleString()} bytes · content retained only while this change is queued` });
   } else {
@@ -168,77 +279,104 @@ function snapshotPanel(parent: HTMLElement, label: string, snapshot: Snapshot | 
   panel.createEl('div', { cls: 'wikiship-hash', text: `SHA-256 ${snapshot.hash}` });
 }
 
-export class ChangeModal extends Modal {
+export class FileReviewModal extends Modal {
   private stop?: () => void;
   constructor(app: App, readonly journal: Journal, readonly operationId: string) { super(app); }
   onOpen() {
     this.modalEl.addClass('wikiship-review-modal');
-    this.stop = this.journal.subscribe(() => this.renderChange()); this.renderChange();
+    this.stop = this.journal.subscribe(() => this.renderFile()); this.renderFile();
   }
   onClose() { this.stop?.(); this.contentEl.empty(); }
-  private renderChange() {
-    const op = this.journal.state.operations.find(candidate => candidate.id === this.operationId);
+  private renderFile() {
+    const batches = reviewBatches(this.journal.state.operations);
+    const batch = batches.find(candidate => candidate.files.some(file => file.operations.some(op => op.id === this.operationId)));
+    const group = batch?.files.find(file => file.operations.some(op => op.id === this.operationId));
     const root = this.contentEl; root.empty();
-    this.titleEl.setText('Review AI change');
-    if (!op) { root.createEl('p', { text: 'This operation is no longer available.' }); return; }
-    root.createEl('p', { cls: 'wikiship-path', text: op.kind === 'move' ? `${op.path} → ${op.target}` : op.path });
-    root.createEl('p', { cls: 'wikiship-muted', text: `${operationLabel(op)} · ${op.status === 'pending-delete' ? 'Awaiting your deletion approval' : op.status}` });
-    root.createEl('p', { cls: 'wikiship-muted', text: `${new Date(op.timestamp).toLocaleString()}${op.agent ? ` · Agent: ${op.agent}` : ''}${op.session ? ` · Session: ${op.session}` : ''}` });
-    if (op.error) root.createEl('p', { cls: 'wikiship-warning', text: op.error });
-    if (op.status === 'pending-delete') root.createEl('p', { cls: 'wikiship-delete-notice', text: 'The file is still in your vault. Marking this session done moves it to Obsidian trash. Undoing this change cancels the deletion.' });
-    const actions = root.createDiv('wikiship-actions');
-    action(actions, 'Undo this change', async () => { await this.journal.undo(op.id); new Notice('Change undone and review data cleared.'); this.close(); }, 'mod-warning');
-    action(actions, 'Mark session done & clear', async () => {
-      const result = await this.journal.completeSession(op.session);
-      new Notice(`Cleared ${result.cleared} change(s)${op.kind === 'delete' ? '; moved the file to Obsidian trash' : ''}.`); this.close();
-    }, 'mod-cta');
-    action(actions, 'Next change', async () => { this.close(); await nextChange(this.app, this.journal, op.id); });
-    const path = op.target ?? op.path;
-    if (this.app.vault.getFileByPath(path)) action(actions, 'Open at change', () => openChangeLocation(this.app, this.journal, op));
-    const before = op.before?.encoding === 'utf8' ? op.before.data : op.before ? null : '';
-    const after = op.after?.encoding === 'utf8' ? op.after.data : op.after ? null : '';
-    let expandSnapshots = before === null || after === null;
-    if (before !== null && after !== null && before !== after && before.length + after.length > 400_000) {
-      root.createEl('p', { cls: 'wikiship-muted', text: 'This change is too large for an inline diff. Compare the recorded file contents below; use the page controls to inspect any part.' });
-      expandSnapshots = true;
+    this.titleEl.setText('Review file');
+    if (!batch || !group) { root.createEl('p', { text: 'This file is no longer in the review queue.' }); return; }
+    const index = batch.files.indexOf(group);
+    root.createEl('p', { cls: 'wikiship-path wikiship-review-file-title', text: group.path });
+    root.createEl('p', { cls: 'wikiship-muted', text: `${index + 1} of ${batch.files.length} files · ${group.category}` });
+    if (group.conflict) root.createEl('p', { cls: 'wikiship-warning', text: 'These recorded steps do not form one verified before-and-after chain. Review each step and the current file before approving or undoing.' });
+    if (group.operations.some(op => op.kind === 'delete' && op.status === 'pending-delete')) {
+      root.createEl('p', { cls: 'wikiship-delete-notice', text: 'The file stays in your vault until approval. Approval moves it to trash. Undo cancels the deletion.' });
     }
-    if (before !== null && after !== null && before !== after && before.length + after.length <= 400_000) {
-      root.createEl('h5', { text: 'Recorded diff' });
+    const actions = root.createDiv('wikiship-actions');
+    action(actions, 'Undo file', async () => { await undoFile(this.journal, group); new Notice('File changes undone and review data cleared.'); this.close(); }, 'mod-warning');
+    action(actions, 'Approve session', async () => {
+      const deletes = batch.operations.filter(op => op.kind === 'delete' && op.status === 'pending-delete').length;
+      const result = await this.journal.completeSession(batch.session);
+      new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} file(s) to trash` : ''}.`); this.close();
+    }, 'mod-cta');
+    action(actions, 'Next file', async () => { this.close(); await nextFile(this.app, this.journal, this.operationId); });
+    const latest = group.operations.at(-1)!;
+    const targetPath = latest.kind === 'move' ? latest.target! : latest.path;
+    if (this.app.vault.getFileByPath(targetPath)) action(actions, 'Open file', () => openChangeLocation(this.app, this.journal, latest));
+
+    const before = group.first.before?.encoding === 'utf8' ? group.first.before.data : group.first.before ? null : '';
+    const after = group.last.after?.encoding === 'utf8' ? group.last.after.data : group.last.after ? null : '';
+    if (group.conflict) {
+      root.createEl('h5', { text: 'Recorded steps' });
+      root.createEl('p', { cls: 'wikiship-muted', text: 'A combined diff is hidden because the saved steps are not continuous.' });
+    } else if (before !== null && after !== null && before !== after && before.length + after.length <= 400_000) {
+      root.createEl('h5', { text: 'Net diff' });
       const diff = root.createEl('pre', { cls: 'wikiship-diff' });
       const parts = diffLines(before, after, { timeout: 1000 });
       if (parts) for (const part of parts) {
         const type = part.added ? 'added' : part.removed ? 'removed' : 'unchanged';
-        // Render literal text only: note contents must never execute HTML or scripts.
         const lines = part.value.split('\n');
         if (lines.at(-1) === '') lines.pop();
         const visible = type === 'unchanged' && lines.length > 8 ? [...lines.slice(0, 3), `… ${lines.length - 6} unchanged lines …`, ...lines.slice(-3)] : lines;
         for (const line of visible) diff.createSpan({ cls: `wikiship-diff-${type}`, text: `${part.added ? '+' : part.removed ? '−' : ' '} ${line}` });
-      } else { diff.setText('Diff calculation reached its time limit. Compare the recorded file contents below.'); expandSnapshots = true; }
+      } else root.createEl('p', { cls: 'wikiship-muted', text: 'Diff calculation reached its time limit. Use the recorded snapshots below.' });
+    } else if (before !== null && after !== null && before !== after) {
+      root.createEl('p', { cls: 'wikiship-muted', text: 'This change is too large for an inline diff. Use the recorded snapshots below.' });
+    } else if (group.last.kind === 'delete' && group.last.status === 'pending-delete') {
+      root.createEl('p', { cls: 'wikiship-muted', text: 'This file will be removed from the vault when approved.' });
+    } else if (group.first.before?.encoding === 'base64' || group.last.after?.encoding === 'base64') {
+      root.createEl('p', { cls: 'wikiship-muted', text: 'Binary file. Contents are available in the recovery record.' });
+    } else if (group.operations.some(op => op.kind === 'move')) {
+      root.createEl('p', { cls: 'wikiship-muted', text: 'File moved. Its contents are unchanged.' });
     }
-    const snapshots = root.createEl('details', { cls: 'wikiship-snapshots' });
-    snapshots.open = expandSnapshots;
-    snapshots.createEl('summary', { text: 'Before and after' });
-    const columns = snapshots.createDiv('wikiship-snapshot-columns');
-    snapshotPanel(columns, 'Before', op.before);
-    snapshotPanel(columns, op.kind === 'delete' && op.status === 'pending-delete' ? 'After approval' : 'After', op.after);
-    root.createEl('p', { cls: 'wikiship-muted', text: 'WikiShip keeps these change records only until you undo them or mark them done and clear them. Once cleared, WikiShip cannot restore them.' });
-    root.createEl('div', { cls: 'wikiship-hash', text: `Operation ${op.id}` });
+
+    const history = root.createEl('details', { cls: 'wikiship-history' });
+    history.createEl('summary', { text: `Operation history · ${group.operations.length}` });
+    for (const op of group.operations) {
+      const entry = history.createDiv('wikiship-history-entry');
+      entry.createDiv({ cls: 'wikiship-history-description', text: `${new Date(op.timestamp).toLocaleString()} · ${operationLabel(op)} · ${op.status}` });
+      if (op.agent) entry.createDiv({ cls: 'wikiship-muted', text: op.agent });
+      if (op.error) entry.createEl('p', { cls: 'wikiship-warning', text: op.error });
+      action(entry, 'Undo step', async () => { await this.journal.undo(op.id); new Notice('Change undone and review data cleared.'); }, 'wikiship-text-button wikiship-muted');
+    }
+
+    const recovery = root.createEl('details', { cls: 'wikiship-snapshots' });
+    recovery.createEl('summary', { text: 'Recovery record' });
+    for (const op of group.operations) {
+      const details = recovery.createEl('details', { cls: 'wikiship-recovery-operation' });
+      details.createEl('summary', { text: `${operationLabel(op)} · ${op.id}` });
+      if (op.error) details.createEl('p', { cls: 'wikiship-warning', text: op.error });
+      const columns = details.createDiv('wikiship-snapshot-columns');
+      snapshotPanel(columns, 'Before', op.before);
+      snapshotPanel(columns, op.kind === 'delete' && op.status === 'pending-delete' ? 'After approval' : 'After', op.after);
+    }
+    root.createEl('p', { cls: 'wikiship-muted', text: 'Approval clears these review records. WikiShip cannot restore them afterward.' });
   }
 }
 
 const lastInspected = new WeakMap<Journal, string>();
 
 export async function nextChange(app: App, journal: Journal, afterId?: string): Promise<void> {
-  const all = journal.state.operations;
-  const pending = all.filter(op => !['reverted'].includes(op.status));
-  if (!pending.length) { new Notice('No AI changes are awaiting review.'); return; }
-  const at = all.findIndex(op => op.id === (afterId ?? lastInspected.get(journal)));
-  const next = pending.find(op => all.indexOf(op) > at) ?? pending[0]!;
-  lastInspected.set(journal, next.id);
-  const path = next.target ?? next.path;
-  const file = app.vault.getFileByPath(path);
-  if (file) {
-    await openChangeLocation(app, journal, next);
-  }
-  new ChangeModal(app, journal, next.id).open();
+  await nextFile(app, journal, afterId ?? lastInspected.get(journal));
+}
+
+async function nextFile(app: App, journal: Journal, afterId?: string) {
+  const files = reviewBatches(journal.state.operations).flatMap(batch => batch.files.map(file => ({ batch, file })));
+  if (!files.length) { new Notice('No files are awaiting review.'); return; }
+  const at = files.findIndex(item => item.file.operations.some(op => op.id === afterId));
+  const next = files[at >= 0 ? (at + 1) % files.length : 0]!;
+  const op = next.file.operations.at(-1)!;
+  lastInspected.set(journal, op.id);
+  const path = op.kind === 'move' ? op.target! : op.path;
+  if (app.vault.getFileByPath(path)) await openChangeLocation(app, journal, op);
+  new FileReviewModal(app, journal, op.id).open();
 }

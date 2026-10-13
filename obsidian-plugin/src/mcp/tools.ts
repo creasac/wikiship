@@ -102,7 +102,7 @@ export function createToolDefinitions(context: WikiShipContext, journal: Journal
     tool('wikiship_create_file', 'Create a UTF-8 file at an absent path, recording AI provenance. Existing files are never overwritten.', {
       path, content, ...identity,
     }, args => mutate({ ...args, kind: 'create' }), true),
-    tool('wikiship_delete_file', 'Stage a file deletion only if its current hash matches. The file stays in the vault until a human marks the session done; then it moves to Obsidian trash.', {
+    tool('wikiship_delete_file', 'Stage a file deletion only if its current hash matches. The file stays in the vault until a human approves the batch; then it moves to trash.', {
       path, expectedHash, ...identity,
     }, args => mutate({ ...args, kind: 'delete' }), true, true),
     tool('wikiship_move_file', 'Move a file to an absent vault-relative target. Require its current hash and record both paths. Does not update links in other files.', {

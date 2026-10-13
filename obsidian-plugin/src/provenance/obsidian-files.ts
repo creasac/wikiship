@@ -23,7 +23,7 @@ export class ObsidianFiles implements WorkspaceFiles {
     if (!current || current.hash !== expected.hash) throw new MutationPreconditionError('Conflict: file changed before its confirmed deletion could be moved to trash.');
     this.assertEditors(path, expected);
     const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) throw new MutationPreconditionError('Conflict: the file is no longer available to move to Obsidian trash.');
+    if (!(file instanceof TFile)) throw new MutationPreconditionError('Conflict: the file is no longer available to move to trash.');
     // `false` selects Obsidian's configured vault trash, not permanent deletion.
     await this.app.vault.trash(file, false);
   }
