@@ -1,6 +1,6 @@
 {
-  "name": "wikiship-obsidian",
-  "version": "0.0.9",
+  "name": "wikidiff-obsidian",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "scripts": {

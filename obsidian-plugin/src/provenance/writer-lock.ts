@@ -6,7 +6,7 @@ import { id } from '../model';
 interface Owner { pid: number; host: string; token: string; }
 const tokenPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const code = (error: unknown) => (error as NodeJS.ErrnoException).code;
-const unknownOwner = () => new Error('wikiship journal lock ownership cannot be verified. Preserve the lock and close other vault instances before recovery.');
+const unknownOwner = () => new Error('wikidiff journal lock ownership cannot be verified. Preserve the lock and close other vault instances before recovery.');
 async function ownerAt(path: string): Promise<Owner> {
   if (!(await fs.lstat(path)).isFile()) throw unknownOwner(); // Never follow a lock symlink.
   let owner: Partial<Owner> | null;
@@ -16,14 +16,14 @@ async function ownerAt(path: string): Promise<Owner> {
   return owner as Owner;
 }
 function requireDead(owner: Owner) {
-  if (owner.host !== hostname()) throw new Error('wikiship journal is locked by another host.');
+  if (owner.host !== hostname()) throw new Error('wikidiff journal is locked by another host.');
   try { process.kill(owner.pid, 0); }
   catch (error) {
     if (code(error) === 'ESRCH') return;
     throw unknownOwner(); // EPERM and other errors are not evidence of death.
   }
   // A reused PID is deliberately treated as live; names/ages are not proof.
-  throw new Error('wikiship journal is already open in another instance.');
+  throw new Error('wikidiff journal is already open in another instance.');
 }
 
 /** Serializes dead-owner recovery without a second unrecoverable lock file. */
@@ -77,7 +77,7 @@ export class JournalWriterLock {
           await this.removeEmptyGuard();
         } catch (error) { if (code(error) !== 'ENOENT') throw error; }
       }
-      if (!this.guardOwned) throw new Error('wikiship journal ownership is changing. Try enabling the plugin again.');
+      if (!this.guardOwned) throw new Error('wikidiff journal ownership is changing. Try enabling the plugin again.');
       const record = join(this.guard, this.ownerName);
       try { await fs.link(record, this.legacy); }
       catch (error) {

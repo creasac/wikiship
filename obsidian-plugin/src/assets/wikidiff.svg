@@ -1,5 +1,5 @@
 <!--
-Custom wikiship concept: two-card stack with a change marker.
+Custom wikidiff concept: two-card stack with a change marker.
 This is not an official Lucide icon. Designed on a 24 x 24 grid with
 2-unit strokes and round caps/joins to fit Lucide's visual language.
 
@@ -17,7 +17,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <title>wikiship stack and changes custom concept</title>
+  <title>wikidiff stack and changes custom concept</title>
   <desc>Two overlapping rounded cards. A plus and minus inside the front card indicate visible changes to selected material.</desc>
   <path d="M16 2H4a2 2 0 0 0-2 2v12"/>
   <rect x="6" y="6" width="16" height="16" rx="2"/>

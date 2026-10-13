@@ -3,7 +3,7 @@ import { getAPI, type LocalRestApiPublicApi } from 'obsidian-local-rest-api';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Journal } from './provenance/journal';
-import { registerWikiShipIcon, WIKISHIP_ICON_ID } from './icon';
+import { registerPluginIcon, PLUGIN_ICON_ID } from './icon';
 import { trackJournalShutdown, waitForJournalShutdown } from './provenance/lifecycle';
 import { AtomicStateStore, DEFAULT_EXCLUSIONS, PathPolicy } from './provenance/storage';
 import { ObsidianFiles } from './provenance/obsidian-files';
@@ -14,7 +14,7 @@ import { registerTools } from './mcp/tools';
 
 interface Settings { exclusions: string[]; }
 
-export default class WikiShip extends Plugin {
+export default class PluginMain extends Plugin {
   journal!: Journal;
   context!: EditorContext;
   private store?: AtomicStateStore;
@@ -30,7 +30,7 @@ export default class WikiShip extends Plugin {
       const saved = await this.loadData() as Partial<Settings> | null;
       if (Array.isArray(saved?.exclusions) && saved.exclusions.every(e => typeof e === 'string' && e && !e.includes('/'))) this.settings.exclusions = saved.exclusions;
       const adapter = this.app.vault.adapter;
-      if (!(adapter instanceof FileSystemAdapter)) throw new Error('wikiship v1 requires a local desktop vault.');
+      if (!(adapter instanceof FileSystemAdapter)) throw new Error('wikidiff v1 requires a local desktop vault.');
       const root = await realpath(adapter.getBasePath());
       if (this.stopped) return;
       this.store = new AtomicStateStore(join(root, this.app.vault.configDir, 'plugins', this.manifest.id), root);
@@ -43,13 +43,13 @@ export default class WikiShip extends Plugin {
       await this.journal.load();
       if (this.stopped) return;
       this.context = new EditorContext(this.app, path => files.readContext(path));
-      registerWikiShipIcon();
+      registerPluginIcon();
       this.registerView(CHANGES_VIEW_TYPE, leaf => new ChangesView(leaf, this.journal));
       const gutter = createReviewExtension(this.journal, id => new FileReviewModal(this.app, this.journal, id).open());
       this.registerEditorExtension(gutter.extension);
       this.register(gutter.destroy);
       this.connection = this.addStatusBarItem();
-      this.connection.addClass('wikiship-statusbar');
+      this.connection.addClass('wikidiff-statusbar');
       this.connection.setAttribute('role', 'button');
       this.connection.setAttribute('tabindex', '0');
       this.connection.addEventListener('click', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
@@ -58,7 +58,7 @@ export default class WikiShip extends Plugin {
           event.preventDefault(); this.run(() => this.openView(CHANGES_VIEW_TYPE));
         }
       });
-      this.connection.setAttribute('aria-label', 'Open WikiShip AI Changes');
+      this.connection.setAttribute('aria-label', 'Open wikidiff AI Changes');
       const reviewable = () => this.journal.state.operations.some(op => !['prepared', 'committing-delete'].includes(op.status));
       let hasReviewableChanges = reviewable();
       if (hasReviewableChanges) this.run(() => this.openView(CHANGES_VIEW_TYPE));
@@ -69,18 +69,18 @@ export default class WikiShip extends Plugin {
         // write-ahead save and its final editor-target check.
         if (hasReviewable && !hasReviewableChanges) this.run(() => this.openView(CHANGES_VIEW_TYPE));
         hasReviewableChanges = hasReviewable;
-        this.connection?.setText(count ? `wikiship · ${count} change${count === 1 ? '' : 's'} · review` : this.api ? 'wikiship · MCP ready' : 'wikiship · enable Local REST API');
+        this.connection?.setText(count ? `wikidiff · ${count} change${count === 1 ? '' : 's'} · review` : this.api ? 'wikidiff · MCP ready' : 'wikidiff · enable Local REST API');
       }));
-      this.addRibbonIcon(WIKISHIP_ICON_ID, 'wikiship AI Changes', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
+      this.addRibbonIcon(PLUGIN_ICON_ID, 'wikidiff AI Changes', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
       this.addCommands();
-      this.addSettingTab(new WikiShipSettings(this.app, this));
+      this.addSettingTab(new PluginSettingsTab(this.app, this));
       this.registerEvent(this.app.workspace.on('obsidian-local-rest-api:loaded', () => this.connectMcp()));
       this.app.workspace.onLayoutReady(() => {
         if (this.stopped) return;
         this.connectMcp();
       });
     } catch (error) {
-      new Notice(`wikiship could not start: ${message(error)}`, 15000);
+      new Notice(`wikidiff could not start: ${message(error)}`, 15000);
       await this.journal?.close();
       await this.store?.close();
       throw error;
@@ -88,7 +88,7 @@ export default class WikiShip extends Plugin {
   }
   run(task: () => Promise<unknown> | unknown) {
     if (this.stopped) return;
-    void Promise.resolve().then(task).catch(error => new Notice(`wikiship: ${message(error)}`, 9000));
+    void Promise.resolve().then(task).catch(error => new Notice(`wikidiff: ${message(error)}`, 9000));
   }
   private addCommands() {
     this.addCommand({ id: 'open-changes', name: 'Show AI Changes', callback: () => this.run(() => this.openView(CHANGES_VIEW_TYPE)) });
@@ -105,11 +105,11 @@ export default class WikiShip extends Plugin {
       this.api = getAPI(this.app, this.manifest, 3);
       if (this.api) registerTools(this.api, this.context, this.journal);
       const pending = this.journal.state.operations.length;
-      this.connection?.setText(pending ? `wikiship · ${pending} change${pending === 1 ? '' : 's'} · review` : this.api ? 'wikiship · MCP ready' : 'wikiship · enable Local REST API');
+      this.connection?.setText(pending ? `wikidiff · ${pending} change${pending === 1 ? '' : 's'} · review` : this.api ? 'wikidiff · MCP ready' : 'wikidiff · enable Local REST API');
     } catch (error) {
       this.api?.unregister(); this.api = undefined;
-      this.connection?.setText('wikiship · MCP unavailable');
-      new Notice(`wikiship MCP: ${message(error)}`, 10000);
+      this.connection?.setText('wikidiff · MCP unavailable');
+      new Notice(`wikidiff MCP: ${message(error)}`, 10000);
     }
   }
   private async openView(type: string) {
@@ -128,18 +128,18 @@ export default class WikiShip extends Plugin {
     // Obsidian does not await this synchronous hook. Publish cleanup before it
     // returns so a replacement instance waits before attempting the writer lock.
     const pending = this.store ? trackJournalShutdown(this.store.directory, shutdown) : shutdown;
-    void pending.catch(error => console.error('wikiship could not close its journal', error));
+    void pending.catch(error => console.error('wikidiff could not close its journal', error));
   }
 }
 function message(error: unknown) { return error instanceof Error ? error.message : String(error); }
 
-class WikiShipSettings extends PluginSettingTab {
-  constructor(app: App, private plugin: WikiShip) { super(app, plugin); }
+class PluginSettingsTab extends PluginSettingTab {
+  constructor(app: App, private plugin: PluginMain) { super(app, plugin); }
   display() {
     this.containerEl.empty();
-    this.containerEl.createEl('h2', { text: 'wikiship' });
-    this.containerEl.createEl('p', { text: 'Connect through Local REST API 5.3.0 or later. Use the wikiship MCP bridge to restrict agents to tracked mutations. Pending changes and their before/after content stay in this vault’s plugin data until you undo or approve them.' });
-    new Setting(this.containerEl).setName('Excluded directory names').setDesc('One name per line. Applies only to wikiship reads and writes. Obsidian settings are unchanged. Reload wikiship after editing.').addTextArea(input => input.setValue(this.plugin.settings.exclusions.join('\n')).onChange(async value => {
+    this.containerEl.createEl('h2', { text: 'wikidiff' });
+    this.containerEl.createEl('p', { text: 'Connect through Local REST API 5.3.0 or later. Use the wikidiff MCP bridge to restrict agents to tracked mutations. Pending changes and their before/after content stay in this vault’s plugin data until you undo or approve them.' });
+    new Setting(this.containerEl).setName('Excluded directory names').setDesc('One name per line. Applies only to wikidiff reads and writes. Obsidian settings are unchanged. Reload wikidiff after editing.').addTextArea(input => input.setValue(this.plugin.settings.exclusions.join('\n')).onChange(async value => {
       const exclusions = value.split('\n').map(line => line.trim()).filter(Boolean);
       if (exclusions.some(name => name.includes('/') || name.includes('\\') || name === '.' || name === '..')) return;
       this.plugin.settings = { exclusions }; await this.plugin.saveData(this.plugin.settings);

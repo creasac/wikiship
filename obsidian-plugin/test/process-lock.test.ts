@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 let scripts: string, fixture: string;
 const roots: string[] = [], processes: ChildProcess[] = [];
 beforeAll(async () => {
-  scripts = await mkdtemp(join(tmpdir(), 'wikiship-process-fixture-')); fixture = join(scripts, 'writer.cjs');
+  scripts = await mkdtemp(join(tmpdir(), 'wikidiff-process-fixture-')); fixture = join(scripts, 'writer.cjs');
   const source = fileURLToPath(new URL('../src', import.meta.url));
   await build({ bundle: true, platform: 'node', format: 'cjs', outfile: fixture, stdin: { resolveDir: source, contents: `
     import fs from 'node:fs/promises';
@@ -17,7 +17,7 @@ beforeAll(async () => {
     import { AtomicStateStore } from './provenance/storage';
     import { Journal } from './provenance/journal';
     import { id, textSnapshot } from './model';
-    const [root, mode] = process.argv.slice(2), directory = root + '/.obsidian/plugins/wikiship';
+    const [root, mode] = process.argv.slice(2), directory = root + '/.obsidian/plugins/wikidiff';
     const send = message => new Promise(resolve => process.send(message, resolve));
     let store, journal, resume;
     if (mode === 'guard-only' || mode === 'recovery-race') {
@@ -80,8 +80,8 @@ function writer(root: string, mode = 'normal') {
   const next = () => messages.length ? Promise.resolve(messages.shift()!) : new Promise<Reply>(resolve => waiters.push(resolve));
   return { child, next, exited, async open() { expect(await next()).toEqual({ ready: true }); child.send('open'); return next(); } };
 }
-async function root() { const path = await mkdtemp(join(tmpdir(), 'wikiship-process-lock-')); roots.push(path); return path; }
-async function lock(path: string) { return readFile(join(path, '.obsidian/plugins/wikiship/state.lock'), 'utf8'); }
+async function root() { const path = await mkdtemp(join(tmpdir(), 'wikidiff-process-lock-')); roots.push(path); return path; }
+async function lock(path: string) { return readFile(join(path, '.obsidian/plugins/wikidiff/state.lock'), 'utf8'); }
 
 describe('journal ownership across real process lifetimes', () => {
   it.each(['exit', 'kill'])('recovers after %s with an intact journal', async stop => {
@@ -130,7 +130,7 @@ describe('journal ownership across real process lifetimes', () => {
   });
 
   it('accepts an empty guard left between owner release and directory cleanup', async () => {
-    const dir = await root(); await mkdir(join(dir, '.obsidian/plugins/wikiship/state.lock.guard'), { recursive: true });
+    const dir = await root(); await mkdir(join(dir, '.obsidian/plugins/wikidiff/state.lock.guard'), { recursive: true });
     const next = writer(dir); const opened = await next.open(); expect(opened.opened, opened.error).toBe(true);
   });
   it('cannot unlink a replacement owner after a delayed dead-owner inspection', async () => {

@@ -12,12 +12,12 @@ class ChangeMarker extends GutterMarker {
   toDOM(view: EditorView) {
     const marker = view.dom.ownerDocument.createElement('button');
     const first = this.locations[0]!;
-    marker.className = `wikiship-gutter-marker wikiship-gutter-${first.kind}`;
+    marker.className = `wikidiff-gutter-marker wikidiff-gutter-${first.kind}`;
     marker.type = 'button';
     marker.textContent = first.kind === 'inserted' ? '▏' : first.kind === 'deleted' ? '⊖' : '◆';
     marker.title = `Inspect ${this.locations.length > 1 ? this.locations.length + ' queued AI changes' : 'queued AI change'}`;
     marker.setAttribute('aria-label', marker.title);
-    marker.dataset.wikishipOperation = first.operationId;
+    marker.dataset.wikidiffOperation = first.operationId;
     return marker;
   }
 }
@@ -67,7 +67,7 @@ export function createReviewExtension(journal: Journal, inspect: (operationId: s
   });
   const operationForEvent = (event: Event) => {
     const target = event.target as Element | null;
-    return typeof target?.closest === 'function' ? target.closest<HTMLElement>('[data-wikiship-operation]')?.dataset.wikishipOperation : undefined;
+    return typeof target?.closest === 'function' ? target.closest<HTMLElement>('[data-wikidiff-operation]')?.dataset.wikidiffOperation : undefined;
   };
   // Use CodeMirror's persistent gutter event surface. Obsidian may replace marker
   // DOM while changing focus; operation attributes survive that replacement.
@@ -77,7 +77,7 @@ export function createReviewExtension(journal: Journal, inspect: (operationId: s
   };
   return {
     extension: [plugin, gutter({
-      class: 'wikiship-gutter', markers: view => view.plugin(plugin)?.markers ?? [],
+      class: 'wikidiff-gutter', markers: view => view.plugin(plugin)?.markers ?? [],
       domEventHandlers: {
         pointerdown: preserveEditor, mousedown: preserveEditor,
         click: (_view, _line, event) => {
