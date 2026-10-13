@@ -182,8 +182,6 @@ export class ChangesView extends ItemView {
       root.createEl('p', { cls: 'wikiship-muted', text: "Changes made by machine minds through wikiship appear here. Your ordinary edits are not included." }); return;
     }
     const batches = reviewBatches(all);
-    const tools = root.createDiv('wikiship-actions');
-    action(tools, 'Review next file', () => nextChange(this.app, this.journal));
     for (const batch of batches) {
       const { session, operations } = batch;
       const section = root.createDiv('wikiship-session-group');
@@ -196,26 +194,23 @@ export class ChangesView extends ItemView {
         ? [totals.removed ? `− ${totals.removed} removed` : '', totals.added ? `+ ${totals.added} added` : ''].filter(Boolean).join(' · ')
         : 'line totals unavailable';
       section.createEl('div', { cls: 'wikiship-batch-summary', text: `${batch.files.length} file${batch.files.length === 1 ? '' : 's'}${batchLabel(batch) ? ` · ${batchLabel(batch)}` : ''}${lineSummary ? ` · ${lineSummary}` : ''}` });
-      const sessionActions = section.createDiv('wikiship-actions');
-      action(sessionActions, 'Undo session', async () => {
-        const result = await this.journal.undoSession(session); new Notice(`Undid ${result.undone} change(s). Review data cleared.`);
-      }, 'mod-warning');
+      const sessionActions = section.createDiv('wikiship-session-actions');
       action(sessionActions, 'Approve session', async () => {
         const deletes = operations.filter(op => op.kind === 'delete' && op.status === 'pending-delete').length;
         const result = await this.journal.completeSession(session);
         new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} file(s) to trash` : ''}.`);
       }, 'mod-cta');
-      const columns = section.createDiv('wikiship-file-columns');
-      columns.createSpan({ text: 'File' }); columns.createSpan({ text: 'Type' });
-      columns.createSpan({ text: '− Removed' }); columns.createSpan({ text: '+ Added' }); columns.createSpan({ text: '' });
+      action(sessionActions, 'Undo session', async () => {
+        const result = await this.journal.undoSession(session); new Notice(`Undid ${result.undone} change(s). Review data cleared.`);
+      }, 'mod-warning');
       for (const fileGroup of batch.files) {
         const file = section.createDiv('wikiship-file-group');
         const row = file.createDiv('wikiship-file-row');
         action(row, fileGroup.path, () => inspectFile(this.app, this.journal, fileGroup), 'wikiship-text-button wikiship-file-link');
-        row.createSpan({ cls: `wikiship-file-kind${fileGroup.conflict ? ' wikiship-warning' : ''}`, text: fileGroup.category });
-        row.createSpan({ cls: 'wikiship-line-total', text: fileGroup.lineTotalsAvailable ? lineCount(fileGroup.removed, '−') : '—' });
-        row.createSpan({ cls: 'wikiship-line-total', text: fileGroup.lineTotalsAvailable ? lineCount(fileGroup.added, '+') : '—' });
-        action(row, 'Undo file', async () => { await undoFile(this.journal, fileGroup); new Notice('File changes undone and review data cleared.'); }, 'wikiship-text-button wikiship-muted');
+        const counts = fileGroup.lineTotalsAvailable
+          ? [lineCount(fileGroup.removed, '−'), lineCount(fileGroup.added, '+')].filter(Boolean).join(' ')
+          : 'line totals unavailable';
+        row.createSpan({ cls: `wikiship-file-meta${fileGroup.conflict ? ' wikiship-warning' : ''}`, text: [fileGroup.category, counts].filter(Boolean).join(' · ') });
         if (fileGroup.conflict) row.createEl('p', { cls: 'wikiship-warning wikiship-file-warning', text: 'Recorded steps do not form a verified sequence. Open review to inspect each step.' });
       }
     }
