@@ -15,13 +15,13 @@ export class Journal {
   private emit() {
     for (const listener of this.listeners) {
       // A view failing to render must not turn a committed mutation into a failed one.
-      try { listener(); } catch (error) { console.error('wikidiff journal subscriber failed', error); }
+      try { listener(); } catch (error) { console.error('wikiship journal subscriber failed', error); }
     }
   }
   private run<T>(task: () => Promise<T>, initializing = false): Promise<T> {
-    if (this.closed) return Promise.reject(new Error('wikidiff is unloading. No new changes are accepted.'));
+    if (this.closed) return Promise.reject(new Error('wikiship is unloading. No new changes are accepted.'));
     return this.queue.run(async () => {
-      if (!initializing && !this.loaded) throw new Error('The wikidiff journal has not loaded successfully.');
+      if (!initializing && !this.loaded) throw new Error('The wikiship journal has not loaded successfully.');
       return task();
     });
   }
@@ -228,7 +228,7 @@ export class Journal {
       const current = await this.files.read(op.path);
       // Missing means the file has already been moved to trash (for example, a
       // restart after the trash operation), or the requested deletion happened
-      // outside wikidiff. Either way, there is no vault file left to remove.
+      // outside WikiShip. Either way, there is no vault file left to remove.
       if (!current) continue;
       if (current.hash !== op.before?.hash) throw new Error(`Conflict: ${op.path} changed after the deletion was staged. Nothing was cleared.`);
       op.status = 'committing-delete'; await this.updateOperation(op);

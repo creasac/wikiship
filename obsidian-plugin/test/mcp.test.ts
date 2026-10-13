@@ -5,7 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { createToolDefinitions, type EditorTarget, type ToolContext } from '../src/mcp/tools';
+import { createToolDefinitions, type EditorTarget, type WikiShipContext } from '../src/mcp/tools';
 import { Journal } from '../src/provenance/journal';
 import { headingRanges, sameHeading } from '../src/context/references';
 import { hash, textSnapshot, type Operation, type Snapshot, type State, type StateStore, type WorkspaceFiles } from '../src/model';
@@ -41,7 +41,7 @@ function headings(text: string) {
     heading: match[2]!, level: match[1]!.length, position: { start: { offset: match.index } },
   })), text.length);
 }
-class Context implements ToolContext {
+class Context implements WikiShipContext {
   active = 'A.md'; from = 0; to = 5;
   constructor(private files: MemoryFiles) {}
   private text(path = this.active) { const file = this.files.values.get(path); if (!file) throw new Error('Missing file.'); return file.data; }
@@ -74,7 +74,7 @@ async function fixture() {
       annotations: definition.annotations,
     }, definition.callback);
   }
-  const client = new Client({ name: 'wikidiff-test-client', version: '1.0.0' });
+  const client = new Client({ name: 'wikiship-test-client', version: '1.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport); await client.connect(clientTransport);
   closers.push(() => client.close(), () => server.close());
@@ -88,25 +88,25 @@ function data(result: Awaited<ReturnType<Client['callTool']>>): Record<string, u
   return JSON.parse(block.text) as Record<string, unknown>;
 }
 
-describe('wikidiff through a real MCP SDK client', () => {
+describe('wikiship through a real MCP SDK client', () => {
   it('lists live tools, reads the current selection, and journals a section edit', async () => {
     const { client, context, journal, store, files } = await fixture();
     const list = await client.listTools();
     expect(list.tools).toHaveLength(12);
-    const replacement = list.tools.find(tool => tool.name === 'wikidiff_replace_range')!;
+    const replacement = list.tools.find(tool => tool.name === 'wikiship_replace_range')!;
     expect(replacement.inputSchema.required).toContain('expectedHash');
     expect(replacement.annotations?.destructiveHint).toBe(true);
     expect(list.tools.some(tool => /revert|review/.test(tool.name))).toBe(false);
 
     context.to = files.values.get('A.md')!.data.length;
-    const selected = data(await client.callTool({ name: 'wikidiff_get_selection', arguments: {} }));
+    const selected = data(await client.callTool({ name: 'wikiship_get_selection', arguments: {} }));
     expect(selected.content).toContain('Second paragraph.');
     context.active = 'B.md';
-    expect(data(await client.callTool({ name: 'wikidiff_get_editor_state', arguments: {} })).activeFile).toBe('B.md');
+    expect(data(await client.callTool({ name: 'wikiship_get_editor_state', arguments: {} })).activeFile).toBe('B.md');
     expect(journal.state.operations).toEqual([]);
 
-    const state = data(await client.callTool({ name: 'wikidiff_get_file_state', arguments: { path: 'B.md' } }));
-    const operation = data(await client.callTool({ name: 'wikidiff_patch_section', arguments: {
+    const state = data(await client.callTool({ name: 'wikiship_get_file_state', arguments: { path: 'B.md' } }));
+    const operation = data(await client.callTool({ name: 'wikiship_patch_section', arguments: {
       path: 'B.md', expectedHash: state.fileHash, headingPath: ['Architecture', 'Storage'],
       content: '## Storage\nRecorded AI design.\n\n', agent: 'test-client', session: 'acceptance',
     } }));
@@ -117,7 +117,7 @@ describe('wikidiff through a real MCP SDK client', () => {
     expect(store.saved!.operations[0]!.agent).toBe('test-client');
     expect(store.saved!.operations[0]!.status).toBe('applied');
 
-    const changes = data(await client.callTool({ name: 'wikidiff_get_changes', arguments: { limit: 1 } }));
+    const changes = data(await client.callTool({ name: 'wikiship_get_changes', arguments: { limit: 1 } }));
     expect(JSON.stringify(changes)).not.toContain('Original design.');
     await journal.undo(String(operation.id));
     expect(files.values.get('B.md')!.data).toContain('Original design.');
@@ -127,23 +127,23 @@ describe('wikidiff through a real MCP SDK client', () => {
     const { client, context, journal, files, definitions } = await fixture();
     const previous = hash(files.values.get('A.md')!.data);
     files.values.set('A.md', textSnapshot('Human edited this.'));
-    const stale = await client.callTool({ name: 'wikidiff_replace_range', arguments: {
+    const stale = await client.callTool({ name: 'wikiship_replace_range', arguments: {
       path: 'A.md', expectedHash: previous, from: 0, to: 5, content: 'Bad',
     } });
     expect(stale.isError).toBe(true);
     const current = hash(files.values.get('A.md')!.data);
     context.from = 3; context.to = 8;
-    const selection = await client.callTool({ name: 'wikidiff_replace_selection', arguments: {
+    const selection = await client.callTool({ name: 'wikiship_replace_selection', arguments: {
       path: 'A.md', expectedHash: current, from: 0, to: 5, content: 'Bad',
     } });
     expect(selection.isError).toBe(true);
-    const invalid = await client.callTool({ name: 'wikidiff_replace_range', arguments: {
+    const invalid = await client.callTool({ name: 'wikiship_replace_range', arguments: {
       path: 'A.md', expectedHash: current, from: 30, to: 1, content: 'Bad',
     } });
     expect(invalid.isError).toBe(true);
-    const missingHash = await client.callTool({ name: 'wikidiff_delete_file', arguments: { path: 'A.md' } });
+    const missingHash = await client.callTool({ name: 'wikiship_delete_file', arguments: { path: 'A.md' } });
     expect(missingHash.isError).toBe(true);
-    const direct = await definitions.find(tool => tool.name === 'wikidiff_create_file')!.callback({ path: 'X.md', content: 4 });
+    const direct = await definitions.find(tool => tool.name === 'wikiship_create_file')!.callback({ path: 'X.md', content: 4 });
     expect(direct.isError).toBe(true);
     expect(journal.state.operations).toHaveLength(0);
     expect(files.values.get('A.md')!.data).toBe('Human edited this.');
@@ -151,12 +151,12 @@ describe('wikidiff through a real MCP SDK client', () => {
 
   it('journals create/move/rename and lets a human cancel a staged deletion', async () => {
     const { client, journal, files } = await fixture();
-    const created = data(await client.callTool({ name: 'wikidiff_create_file', arguments: { path: 'new.md', content: 'Keep me.' } }));
-    expect((await client.callTool({ name: 'wikidiff_create_file', arguments: { path: 'new.md', content: 'Overwrite.' } })).isError).toBe(true);
-    const moved = data(await client.callTool({ name: 'wikidiff_move_file', arguments: { path: 'new.md', target: 'folder/new.md', expectedHash: created.afterHash } }));
-    const renamed = data(await client.callTool({ name: 'wikidiff_rename_file', arguments: { path: 'folder/new.md', name: 'renamed.md', expectedHash: moved.afterHash } }));
+    const created = data(await client.callTool({ name: 'wikiship_create_file', arguments: { path: 'new.md', content: 'Keep me.' } }));
+    expect((await client.callTool({ name: 'wikiship_create_file', arguments: { path: 'new.md', content: 'Overwrite.' } })).isError).toBe(true);
+    const moved = data(await client.callTool({ name: 'wikiship_move_file', arguments: { path: 'new.md', target: 'folder/new.md', expectedHash: created.afterHash } }));
+    const renamed = data(await client.callTool({ name: 'wikiship_rename_file', arguments: { path: 'folder/new.md', name: 'renamed.md', expectedHash: moved.afterHash } }));
     expect(renamed.target).toBe('folder/renamed.md');
-    const deleted = data(await client.callTool({ name: 'wikidiff_delete_file', arguments: { path: 'folder/renamed.md', expectedHash: renamed.afterHash } }));
+    const deleted = data(await client.callTool({ name: 'wikiship_delete_file', arguments: { path: 'folder/renamed.md', expectedHash: renamed.afterHash } }));
     expect(files.values.has('folder/renamed.md')).toBe(true);
     expect(deleted.status).toBe('pending-delete');
     expect(journal.state.operations.map(op => op.kind)).toEqual(['create', 'move', 'move', 'delete']);
@@ -167,7 +167,7 @@ describe('wikidiff through a real MCP SDK client', () => {
     expect(files.values.get('folder/renamed.md')!.data).toBe('New human content.');
   });
 
-  it.each(['wikidiff_replace_selection', 'wikidiff_insert_at_cursor'])('rechecks the unchanged-text editor target after slow journal persistence for %s', async name => {
+  it.each(['wikiship_replace_selection', 'wikiship_insert_at_cursor'])('rechecks the unchanged-text editor target after slow journal persistence for %s', async name => {
     const { client, context, journal, store, files } = await fixture();
     const original = files.values.get('A.md')!.data;
     let started!: () => void, resume!: () => void;
@@ -177,7 +177,7 @@ describe('wikidiff through a real MCP SDK client', () => {
     vi.spyOn(store, 'save').mockImplementationOnce(async state => { await save(state); started(); await gate; });
     const pending = client.callTool({ name, arguments: {
       path: 'A.md', expectedHash: hash(original), content: 'AI replacement',
-      ...(name === 'wikidiff_replace_selection' ? { from: 0, to: 5 } : { offset: 5 }),
+      ...(name === 'wikiship_replace_selection' ? { from: 0, to: 5 } : { offset: 5 }),
     } });
     await saving;
     context.from = 10; context.to = 15;
@@ -196,7 +196,7 @@ describe('wikidiff through a real MCP SDK client', () => {
     context.active = 'B.md';
     const original = files.values.get('B.md')!.data, save = store.save.bind(store);
     vi.spyOn(store, 'save').mockImplementationOnce(async state => { await save(state); context.active = 'A.md'; });
-    const response = await client.callTool({ name: 'wikidiff_patch_section', arguments: {
+    const response = await client.callTool({ name: 'wikiship_patch_section', arguments: {
       path: 'B.md', expectedHash: hash(original), headingPath: ['Architecture', 'Storage'], content: '## Storage\nAI\n',
     } });
     expect(response.isError).toBe(true);
@@ -217,14 +217,14 @@ describe('tools-only stdio bridge policy', () => {
   it('forwards allowed MCP calls and refuses host writes, arbitrary commands, and prefix lookalikes', async () => {
     const { client: upstream, server: host, journal } = await fixture();
     let bypassCalls = 0;
-    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikidiff_raw_write']) {
+    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikiship_raw_write']) {
       host.registerTool(name, { inputSchema: { path: z.string().optional() } }, async () => {
         bypassCalls++; return { content: [{ type: 'text', text: 'Bypassed' }] };
       });
     }
     const { createBridge, ALLOWED_TOOLS } = await bridgeModule();
     expect(ALLOWED_TOOLS).toHaveLength(19);
-    const readTools = ALLOWED_TOOLS.filter(name => !name.startsWith('wikidiff_'));
+    const readTools = ALLOWED_TOOLS.filter(name => !name.startsWith('wikiship_'));
     for (const name of readTools) host.registerTool(name, { inputSchema: {} }, async () => ({ content: [{ type: 'text', text: JSON.stringify({ read: name }) }] }));
     const bridge = createBridge(upstream), client = new Client({ name: 'external-agent', version: '1' });
     const [agentTransport, bridgeTransport] = InMemoryTransport.createLinkedPair();
@@ -232,12 +232,12 @@ describe('tools-only stdio bridge policy', () => {
     closers.push(() => client.close(), () => bridge.close());
     const list = await client.listTools();
     expect(list.tools.map(tool => tool.name).sort()).toEqual([...ALLOWED_TOOLS].sort());
-    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikidiff_raw_write']) {
+    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikiship_raw_write']) {
       expect((await client.callTool({ name, arguments: { path: 'A.md' } })).isError).toBe(true);
     }
     expect(bypassCalls).toBe(0);
     for (const name of readTools) expect(data(await client.callTool({ name, arguments: {} })).read).toBe(name);
-    const created = data(await client.callTool({ name: 'wikidiff_create_file', arguments: { path: 'through-bridge.md', content: 'Journal me.' } }));
+    const created = data(await client.callTool({ name: 'wikiship_create_file', arguments: { path: 'through-bridge.md', content: 'Journal me.' } }));
     expect(created.status).toBe('applied');
     expect(journal.state.operations[0]!.path).toBe('through-bridge.md');
   });
@@ -245,10 +245,10 @@ describe('tools-only stdio bridge policy', () => {
   it('rejects remote/credential-bearing endpoints and does not include secrets in config errors', async () => {
     const { readConfiguration } = await bridgeModule();
     for (const url of ['https://example.com/mcp', 'https://secret@localhost/mcp', 'http://localhost/vault/', 'https://localhost/mcp?token=secret']) {
-      expect(() => readConfiguration({ WIKIDIFF_MCP_URL: url, WIKIDIFF_API_KEY: 'secret' })).toThrow('must point to /mcp');
+      expect(() => readConfiguration({ WIKISHIP_MCP_URL: url, WIKISHIP_API_KEY: 'secret' })).toThrow('must point to /mcp');
     }
-    const configured = readConfiguration({ WIKIDIFF_MCP_URL: 'http://127.0.0.1:27123/mcp', WIKIDIFF_API_KEY: 'test-key' });
+    const configured = readConfiguration({ WIKISHIP_MCP_URL: 'http://127.0.0.1:27123/mcp', WIKISHIP_API_KEY: 'test-key' });
     expect(configured.url.hostname).toBe('127.0.0.1');
-    expect(() => readConfiguration({ WIKIDIFF_API_KEY: 'secret\nvalue' })).toThrow('Set WIKIDIFF_API_KEY');
+    expect(() => readConfiguration({ WIKISHIP_API_KEY: 'secret\nvalue' })).toThrow('Set WIKISHIP_API_KEY');
   });
 });

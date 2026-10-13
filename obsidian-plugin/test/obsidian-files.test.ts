@@ -12,7 +12,7 @@ import { hash, type State, type StateStore } from '../src/model';
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true }))); });
 async function fixture() {
-  const root = await fs.mkdtemp(join(tmpdir(), 'wikidiff-adapter-')); roots.push(root);
+  const root = await fs.mkdtemp(join(tmpdir(), 'wikiship-adapter-')); roots.push(root);
   const tracked = new Map<string, TFile>(), views: MarkdownView[] = [];
   function track(path: string) {
     const file = Object.assign(Object.create(TFile.prototype) as TFile, { path, stat: { mtime: 0 } });

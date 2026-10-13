@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileSystemAdapter, type App, type PluginManifest } from 'obsidian';
-import wikidiff from '../src/main';
+import WikiShip from '../src/main';
 import { AtomicStateStore } from '../src/provenance/storage';
 import { waitForJournalShutdown } from '../src/provenance/lifecycle';
 import type { Operation, Snapshot } from '../src/model';
@@ -36,18 +36,18 @@ vi.mock('../src/mcp/tools', () => ({ registerTools: vi.fn() }));
 const roots: string[] = [];
 function gate() { let release!: () => void; const promise = new Promise<void>(resolve => { release = resolve; }); return { promise, release }; }
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'wikidiff-lifecycle-')); roots.push(root);
-  const directory = join(root, '.obsidian/plugins/wikidiff');
+  const root = await mkdtemp(join(tmpdir(), 'wikiship-lifecycle-')); roots.push(root);
+  const directory = join(root, '.obsidian/plugins/wikiship');
   const adapter = new FileSystemAdapter(); vi.spyOn(adapter, 'getBasePath').mockReturnValue(root);
   const leaf = { setViewState: vi.fn(), view: {} };
   const workspace = { on: vi.fn(), onLayoutReady: vi.fn(), getLeavesOfType: vi.fn(() => []), getRightLeaf: vi.fn(() => leaf), revealLeaf: vi.fn() };
   const app = { vault: { adapter, configDir: '.obsidian', on: vi.fn() }, workspace } as unknown as App;
-  const plugin = (Ctor = wikidiff) => new Ctor(app, { id: 'wikidiff' } as PluginManifest);
+  const plugin = (Ctor = WikiShip) => new Ctor(app, { id: 'wikiship' } as PluginManifest);
   return { root, directory, plugin, workspace, leaf };
 }
 afterEach(async () => { vi.restoreAllMocks(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 
-async function blockedMutation(plugin: wikidiff) {
+async function blockedMutation(plugin: WikiShip) {
   const entered = gate(), finish = gate(), save = AtomicStateStore.prototype.save;
   vi.spyOn(AtomicStateStore.prototype, 'save').mockImplementationOnce(async function(this: AtomicStateStore, state) { entered.release(); await finish.promise; return save.call(this, state); });
   const pending = plugin.journal.mutate({ kind: 'create', path: 'synthetic.md', content: 'synthetic test content' });
@@ -95,11 +95,11 @@ describe('plugin journal lifecycle', () => {
     // Obsidian discards the old plugin module on reload: a module-local map
     // would fail this test even though a same-module replacement could pass.
     vi.resetModules();
-    const { default: Reloadedwikidiff } = await import('../src/main');
+    const { default: ReloadedWikiShip } = await import('../src/main');
     const { AtomicStateStore: ReloadedStore } = await import('../src/provenance/storage');
     const open = vi.spyOn(ReloadedStore.prototype, 'open');
     const path = vi.spyOn(old.app.vault.adapter as FileSystemAdapter, 'getBasePath').mockClear();
-    const next = plugin(Reloadedwikidiff), opening = next.onload();
+    const next = plugin(ReloadedWikiShip), opening = next.onload();
     try {
       await vi.waitFor(() => expect(path).toHaveBeenCalledOnce());
       expect(await readFile(lock, 'utf8')).toBe(before);
@@ -212,7 +212,7 @@ describe('plugin journal lifecycle', () => {
     await expect(shutdown).rejects.toThrow('Synthetic cleanup failure');
     await expect(plugin().onload()).rejects.toThrow('already open');
     expect(await readFile(lock, 'utf8')).toBe(before);
-    expect(reported).toHaveBeenCalledWith('wikidiff could not close its journal', expect.any(Error));
+    expect(reported).toHaveBeenCalledWith('wikiship could not close its journal', expect.any(Error));
     // Restore normal owner-token cleanup of this synthetic test fixture only.
     await close.call(owner);
     const next = plugin(); await next.onload(); next.onunload(); await waitForJournalShutdown(directory);

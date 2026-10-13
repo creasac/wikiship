@@ -1,10 +1,10 @@
 import { addIcon } from 'obsidian';
-import artwork from './assets/wikidiff.svg?raw';
+import artwork from './assets/wikiship.svg?raw';
 
-export const PLUGIN_ICON_ID = 'wikidiff';
+export const WIKISHIP_ICON_ID = 'wikiship';
 
-export function registerPluginIcon() {
+export function registerWikiShipIcon() {
   // Obsidian wraps custom icons in a 100-unit viewport. Keep the selected
   // 24-unit SVG untouched and scale its viewport uniformly to fit that wrapper.
-  addIcon(PLUGIN_ICON_ID, `<g transform="scale(${100 / 24})">${artwork}</g>`);
+  addIcon(WIKISHIP_ICON_ID, `<g transform="scale(${100 / 24})">${artwork}</g>`);
 }

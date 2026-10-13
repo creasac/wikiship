@@ -12,7 +12,7 @@ function descendant(root: string, path: string): string {
   return result;
 }
 
-/** wikidiff's path policy; it never changes Obsidian's own visibility settings. */
+/** WikiShip's path policy; it never changes Obsidian's own visibility settings. */
 export class PathPolicy {
   constructor(readonly root: string, private configDir: string, private exclusions = DEFAULT_EXCLUSIONS) {}
   validate(path: string): string {
@@ -23,7 +23,7 @@ export class PathPolicy {
     const lower = path.toLowerCase();
     const reserved = internal.filter(p => !p.includes('/'));
     if (internal.some(p => lower === p.toLowerCase() || lower.startsWith(p.toLowerCase() + '/')) ||
-      parts.some(p => [...reserved, ...this.exclusions].some(e => e.toLowerCase() === p.toLowerCase()))) throw new Error('Path is excluded from wikidiff.');
+      parts.some(p => [...reserved, ...this.exclusions].some(e => e.toLowerCase() === p.toLowerCase()))) throw new Error('Path is excluded from wikiship.');
     const absolute = resolve(this.root, path);
     descendant(this.root, absolute);
     return absolute;
@@ -41,7 +41,7 @@ async function assertNoSymlinks(root: string, path: string) {
   let current = root;
   for (const part of path.split('/')) {
     current = join(current, part);
-    try { if ((await fs.lstat(current)).isSymbolicLink()) throw new Error('wikidiff does not follow symlinks.'); }
+    try { if ((await fs.lstat(current)).isSymbolicLink()) throw new Error('wikiship does not follow symlinks.'); }
     catch (error) { if (missing(error)) return; throw error; }
   }
 }
@@ -82,7 +82,7 @@ export class AtomicStateStore implements StateStore {
   async save(state: State) {
     if (!this.locked || this.closed) throw new Error('Journal store is not open.');
     const current = await this.raw();
-    if ((current === null ? null : hash(current)) !== this.expected) throw new Error('Journal changed outside wikidiff. Reload after resolving the external change.');
+    if ((current === null ? null : hash(current)) !== this.expected) throw new Error('Journal changed outside wikiship. Reload after resolving the external change.');
     const data = JSON.stringify(state);
     const temporary = join(this.directory, `state.${id()}.tmp`);
     const handle = await fs.open(temporary, 'wx', 0o600);
@@ -90,7 +90,7 @@ export class AtomicStateStore implements StateStore {
     finally { await handle.close(); }
     try {
       const latest = await this.raw();
-      if ((latest === null ? null : hash(latest)) !== this.expected) throw new Error('Journal changed outside wikidiff while saving. Resolve the external change before recovery.');
+      if ((latest === null ? null : hash(latest)) !== this.expected) throw new Error('Journal changed outside wikiship while saving. Resolve the external change before recovery.');
       // Rename keeps the previous complete state intact if writing the temp file fails.
       await fs.rename(temporary, this.path);
       this.expected = hash(data);

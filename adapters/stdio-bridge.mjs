@@ -13,18 +13,18 @@ import { CallToolRequestSchema, ListToolsRequestSchema, ToolListChangedNotificat
 export const ALLOWED_TOOLS = Object.freeze([
   'vault_list', 'vault_read', 'vault_get_document_map', 'active_file_get_path',
   'search_query', 'search_simple', 'tag_list',
-  'wikidiff_get_editor_state', 'wikidiff_get_selection',
-  'wikidiff_get_file_state',
-  'wikidiff_replace_range', 'wikidiff_replace_selection', 'wikidiff_insert_at_cursor',
-  'wikidiff_patch_section', 'wikidiff_create_file', 'wikidiff_delete_file',
-  'wikidiff_move_file', 'wikidiff_rename_file', 'wikidiff_get_changes',
+  'wikiship_get_editor_state', 'wikiship_get_selection',
+  'wikiship_get_file_state',
+  'wikiship_replace_range', 'wikiship_replace_selection', 'wikiship_insert_at_cursor',
+  'wikiship_patch_section', 'wikiship_create_file', 'wikiship_delete_file',
+  'wikiship_move_file', 'wikiship_rename_file', 'wikiship_get_changes',
 ]);
 const allowed = new Set(ALLOWED_TOOLS);
 const failure = message => ({ isError: true, content: [{ type: 'text', text: message }] });
 
 /** Construct an MCP tools-only proxy over an already connected upstream client. */
 export function createBridge(upstream) {
-  const server = new Server({ name: 'wikidiff', version: '0.1.4' }, { capabilities: { tools: { listChanged: true } } });
+  const server = new Server({ name: 'wikiship', version: '0.1.3' }, { capabilities: { tools: { listChanged: true } } });
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const tools = [];
     let cursor;
@@ -33,7 +33,7 @@ export function createBridge(upstream) {
     for (let page = 0; page < 20; page++) {
       let batch;
       try { batch = await upstream.listTools(cursor ? { cursor } : undefined); }
-      catch { throw new Error('Cannot list wikidiff tools. Check the local host connection.'); }
+      catch { throw new Error('Cannot list wikiship tools. Check the local host connection.'); }
       tools.push(...batch.tools.filter(tool => allowed.has(tool.name)));
       cursor = batch.nextCursor;
       if (!cursor) return { tools };
@@ -41,13 +41,13 @@ export function createBridge(upstream) {
     throw new Error('The local host returned too many tool-list pages.');
   });
   server.setRequestHandler(CallToolRequestSchema, async request => {
-    if (!allowed.has(request.params.name)) return failure('This tool is not available through the wikidiff bridge.');
+    if (!allowed.has(request.params.name)) return failure('This tool is not available through the wikiship bridge.');
     try {
       return await upstream.callTool({ name: request.params.name, arguments: request.params.arguments ?? {} });
     } catch {
       // Transport errors can include request details. Never echo auth headers or
       // the configured endpoint; application isError results pass through above.
-      return failure('The local wikidiff host request failed. Check Obsidian and its Local REST API connection.');
+      return failure('The local wikiship host request failed. Check Obsidian and its Local REST API connection.');
     }
   });
   upstream.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
@@ -58,22 +58,22 @@ export function createBridge(upstream) {
 
 export function readConfiguration(env) {
   let url;
-  try { url = new URL(env.WIKIDIFF_MCP_URL || 'https://127.0.0.1:27124/mcp/'); }
-  catch { throw new Error('WIKIDIFF_MCP_URL must be a local MCP URL.'); }
+  try { url = new URL(env.WIKISHIP_MCP_URL || 'https://127.0.0.1:27124/mcp/'); }
+  catch { throw new Error('WIKISHIP_MCP_URL must be a local MCP URL.'); }
   if (!['http:', 'https:'].includes(url.protocol) || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
     !['/mcp', '/mcp/'].includes(url.pathname) || url.search || url.hash || url.username || url.password) {
-    throw new Error('WIKIDIFF_MCP_URL must point to /mcp on localhost with no credentials, query, or fragment.');
+    throw new Error('WIKISHIP_MCP_URL must point to /mcp on localhost with no credentials, query, or fragment.');
   }
-  const token = env.WIKIDIFF_API_KEY;
+  const token = env.WIKISHIP_API_KEY;
   if (typeof token !== 'string' || token.length === 0 || /[\r\n]/.test(token)) {
-    throw new Error('Set WIKIDIFF_API_KEY to the Local REST API key in the client environment.');
+    throw new Error('Set WIKISHIP_API_KEY to the Local REST API key in the client environment.');
   }
   return { url, token };
 }
 
 export async function main() {
   const { url, token } = readConfiguration(process.env);
-  const upstream = new Client({ name: 'wikidiff-bridge', version: '0.1.4' });
+  const upstream = new Client({ name: 'wikiship-bridge', version: '0.1.3' });
   const transport = new StreamableHTTPClientTransport(url, {
     requestInit: { headers: { Authorization: `Bearer ${token}` }, redirect: 'error' },
   });
@@ -97,7 +97,7 @@ export async function main() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch(error => {
     // Only our own configuration/connection errors reach here.
-    process.stderr.write(`wikidiff bridge: ${error instanceof Error ? error.message : 'Startup failed.'}\n`);
+    process.stderr.write(`wikiship bridge: ${error instanceof Error ? error.message : 'Startup failed.'}\n`);
     process.exitCode = 1;
   });
 }

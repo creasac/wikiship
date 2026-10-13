@@ -1,6 +1,6 @@
 # Architecture
 
-wikidiff is a desktop Obsidian plugin. `src/context` reads the current editor selection, cursor, and section metadata; `src/provenance` owns state and mutations; `src/review` supplies native views and CodeMirror gutters; `src/mcp` registers tool definitions with Local REST API.
+wikiship is a desktop Obsidian plugin. `src/context` reads the current editor selection, cursor, and section metadata; `src/provenance` owns state and mutations; `src/review` supplies native views and CodeMirror gutters; `src/mcp` registers tool definitions with Local REST API.
 
 ## Live editor context
 
@@ -12,7 +12,7 @@ Current heading positions come from the established Lezer Markdown parser becaus
 
 ## Mutation transaction
 
-1. Serialize wikidiff operations through a queue.
+1. Serialize wikiship operations through a queue.
 2. Check a vault-relative path, symlinks, exclusions, size, absence/precondition hash, and destination.
 3. Save a `prepared` operation with before/after content and hashes before editing or moving a file.
 4. Recheck the file and its open editors. Use Obsidian `Vault.process`/`DataAdapter.process` for guarded text updates, and vault APIs for creation and rename. A delete is recorded as `pending-delete`; the file stays in the vault until a human approves the batch.
@@ -28,20 +28,20 @@ Obsidian APIs cannot provide a cross-process transaction with arbitrary shell wr
 
 The journal is a pending review queue, not a permanent history. The panel groups file-level net diffs by the optional self-reported MCP session label; unlabeled calls share an unlabeled batch. Batch metadata and totals appear once. Each file's operation history and recovery snapshots are expandable. Before/after displays render literal text; file content is never interpreted as executable HTML. Diff calculations are bounded. Large text uses 50,000-character pages so every part remains inspectable without rendering the entire file at once.
 
-Undoing one change or a session requires the current file to match the recorded state, checks any destination is absent, persists reverse intent, then restores the previous state. Newer human content in either disk or an open editor causes a conflict. Sessions undo newest first and stop at the first conflict without overwriting newer content. Approving a batch leaves edits/creates/moves in place, moves staged deletions to trash, and removes the batch records. Undo also removes the records. Once cleared, wikidiff cannot restore them.
+Undoing one change or a session requires the current file to match the recorded state, checks any destination is absent, persists reverse intent, then restores the previous state. Newer human content in either disk or an open editor causes a conflict. Sessions undo newest first and stop at the first conflict without overwriting newer content. Approving a batch leaves edits/creates/moves in place, moves staged deletions to trash, and removes the batch records. Undo also removes the records. Once cleared, WikiShip cannot restore them.
 
 Gutter positions are derived only through verified journal hash chains. Unknown human changes suppress precise markers instead of putting them on unrelated text; the sidebar continues to show the recorded operation. Multiple AI edits can move earlier marker locations through a known chain. Deletions retain a marker at the checked deletion point and preserve their text in the diff.
 
 ## MCP and trust boundary
 
-[Local REST API 5.3.0](https://github.com/coddingtonbear/obsidian-local-rest-api/tree/5.3.0) exposes extension API v3, including typed tool registration and cleanup. wikidiff re-registers when the host loads/reloads, and unregisters on unload. HTTP, authentication, certificate handling, and MCP sessions belong to the host. No second network server is started.
+[Local REST API 5.3.0](https://github.com/coddingtonbear/obsidian-local-rest-api/tree/5.3.0) exposes extension API v3, including typed tool registration and cleanup. wikiship re-registers when the host loads/reloads, and unregisters on unload. HTTP, authentication, certificate handling, and MCP sessions belong to the host. No second network server is started.
 
-The host API cannot remove the host's own writes for one extension. Direct clients can therefore bypass wikidiff. `adapters/stdio-bridge.mjs` is a generic client-side MCP bridge to the same endpoint: it passes an exact list of wikidiff tools plus seven inspected read/search tools. It rejects arbitrary commands, raw writes, copy/move/delete, upload grants, and even `open_file` because that tool can create an absent note. Read-only annotations alone never grant access. Resources/prompts are not forwarded.
+The host API cannot remove the host's own writes for one extension. Direct clients can therefore bypass wikiship. `adapters/stdio-bridge.mjs` is a generic client-side MCP bridge to the same endpoint: it passes an exact list of wikiship tools plus seven inspected read/search tools. It rejects arbitrary commands, raw writes, copy/move/delete, upload grants, and even `open_file` because that tool can create an absent note. Read-only annotations alone never grant access. Resources/prompts are not forwarded.
 
-This bridge controls tools exposed by that connection. A client with another connection, the host API key, or shell/filesystem access can still write outside wikidiff. Such writes are not attributed. Human review/undo/approval tools are not exposed to agents. Optional agent/session strings are explicitly self-reported: the host callback supplies no verified client identity.
+This bridge controls tools exposed by that connection. A client with another connection, the host API key, or shell/filesystem access can still write outside WikiShip. Such writes are not attributed. Human review/undo/approval tools are not exposed to agents. Optional agent/session strings are explicitly self-reported: the host callback supplies no verified client identity.
 
 ## Storage, projects, and sync
 
-Files remain in the original vault/project. There is no import, proprietary document format, search index, cloud service, model provider, or sync layer. Default generated-directory exclusions apply only to wikidiff. Users edit these rules in wikidiff settings; Obsidian configuration is otherwise untouched.
+Files remain in the original vault/project. There is no import, proprietary document format, search index, cloud service, model provider, or sync layer. Default generated-directory exclusions apply only to wikiship. Users edit these rules in wikiship settings; Obsidian configuration is otherwise untouched.
 
-`<configDir>/plugins/wikidiff/state.json` holds pending review records and their temporary before/after content. Clearing the last session replaces the payload with an empty journal; no change history remains in wikidiff. There is no automatic expiry: pending records stay until you undo or clear them. `state.lock` and `state.lock.guard` enforce the local writer lock; both are ownership metadata, not journal backups. Keep the journal out of concurrent multi-device writes. When state changes externally, wikidiff stops instead of silently merging it.
+`<configDir>/plugins/wikiship/state.json` holds pending review records and their temporary before/after content. Clearing the last session replaces the payload with an empty journal; no change history remains in WikiShip. There is no automatic expiry: pending records stay until you undo or clear them. `state.lock` and `state.lock.guard` enforce the local writer lock; both are ownership metadata, not journal backups. Keep the journal out of concurrent multi-device writes. When state changes externally, WikiShip stops instead of silently merging it.

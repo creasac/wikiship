@@ -5,7 +5,7 @@ import type { Journal } from '../provenance/journal';
 import { locationsForFile, operationLabel } from './changes';
 import { snapshotPage } from './paging';
 
-export const CHANGES_VIEW_TYPE = 'wikidiff-changes';
+export const CHANGES_VIEW_TYPE = 'wikiship-changes';
 
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String(error); }
 
@@ -165,7 +165,7 @@ export class ChangesView extends ItemView {
   getDisplayText() { return 'AI Changes'; }
   getIcon() { return 'git-pull-request'; }
   async onOpen() {
-    this.contentEl.addClass('wikidiff-view');
+    this.contentEl.addClass('wikiship-view');
     this.stop = this.journal.subscribe(() => this.render()); this.render();
   }
   async onClose() { this.stop?.(); }
@@ -174,14 +174,14 @@ export class ChangesView extends ItemView {
     root.createEl('h4', { text: 'AI Changes' });
     const all = this.journal.state.operations;
     if (all.some(op => ['prepared', 'uncertain', 'reverting', 'committing-delete'].includes(op.status))) {
-      root.createEl('p', { cls: 'wikidiff-warning', text: 'An interrupted operation needs recovery before changes can be undone or cleared.' });
+      root.createEl('p', { cls: 'wikiship-warning', text: 'An interrupted operation needs recovery before changes can be undone or cleared.' });
       action(root, 'Recover interrupted operations', () => this.journal.recover());
     }
     if (!all.length) {
-      root.createEl('p', { cls: 'wikidiff-muted', text: 'Changes made through wikidiff appear here. Your ordinary edits are never labeled as AI changes.' }); return;
+      root.createEl('p', { cls: 'wikiship-muted', text: 'Changes made through WikiShip appear here. Your ordinary edits are never labeled as AI changes.' }); return;
     }
     const batches = reviewBatches(all);
-    const tools = root.createDiv('wikidiff-actions');
+    const tools = root.createDiv('wikiship-actions');
     action(tools, 'Review next file', () => nextChange(this.app, this.journal));
     action(tools, 'Undo all changes', async () => {
       const result = await this.journal.undoAll(); new Notice(`Undid ${result.undone} change(s). Review data cleared.`);
@@ -193,17 +193,17 @@ export class ChangesView extends ItemView {
     }, 'mod-cta');
     for (const batch of batches) {
       const { session, operations } = batch;
-      const section = root.createDiv('wikidiff-session-group');
+      const section = root.createDiv('wikiship-session-group');
       const title = session || 'Unlabelled session';
-      section.createEl('h5', { text: title, cls: 'wikidiff-path' });
-      section.createEl('div', { cls: 'wikidiff-muted wikidiff-batch-meta', text: `${formatBatchTime(operations)} · ${formatAgents(operations)}` });
+      section.createEl('h5', { text: title, cls: 'wikiship-path' });
+      section.createEl('div', { cls: 'wikiship-muted wikiship-batch-meta', text: `${formatBatchTime(operations)} · ${formatAgents(operations)}` });
       const linesAvailable = batch.files.every(file => file.lineTotalsAvailable);
       const totals = batch.files.reduce((sum, file) => ({ removed: sum.removed + file.removed, added: sum.added + file.added }), { removed: 0, added: 0 });
       const lineSummary = linesAvailable
         ? [totals.removed ? `− ${totals.removed} removed` : '', totals.added ? `+ ${totals.added} added` : ''].filter(Boolean).join(' · ')
         : 'line totals unavailable';
-      section.createEl('div', { cls: 'wikidiff-batch-summary', text: `${batch.files.length} file${batch.files.length === 1 ? '' : 's'}${batchLabel(batch) ? ` · ${batchLabel(batch)}` : ''}${lineSummary ? ` · ${lineSummary}` : ''}` });
-      const sessionActions = section.createDiv('wikidiff-actions');
+      section.createEl('div', { cls: 'wikiship-batch-summary', text: `${batch.files.length} file${batch.files.length === 1 ? '' : 's'}${batchLabel(batch) ? ` · ${batchLabel(batch)}` : ''}${lineSummary ? ` · ${lineSummary}` : ''}` });
+      const sessionActions = section.createDiv('wikiship-actions');
       action(sessionActions, 'Undo session', async () => {
         const result = await this.journal.undoSession(session); new Notice(`Undid ${result.undone} change(s). Review data cleared.`);
       }, 'mod-warning');
@@ -212,18 +212,18 @@ export class ChangesView extends ItemView {
         const result = await this.journal.completeSession(session);
         new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} file(s) to trash` : ''}.`);
       }, 'mod-cta');
-      const columns = section.createDiv('wikidiff-file-columns');
+      const columns = section.createDiv('wikiship-file-columns');
       columns.createSpan({ text: 'File' }); columns.createSpan({ text: 'Type' });
       columns.createSpan({ text: '− Removed' }); columns.createSpan({ text: '+ Added' }); columns.createSpan({ text: '' });
       for (const fileGroup of batch.files) {
-        const file = section.createDiv('wikidiff-file-group');
-        const row = file.createDiv('wikidiff-file-row');
-        action(row, fileGroup.path, () => inspectFile(this.app, this.journal, fileGroup), 'wikidiff-text-button wikidiff-file-link');
-        row.createSpan({ cls: `wikidiff-file-kind${fileGroup.conflict ? ' wikidiff-warning' : ''}`, text: fileGroup.category });
-        row.createSpan({ cls: 'wikidiff-line-total', text: fileGroup.lineTotalsAvailable ? lineCount(fileGroup.removed, '−') : '—' });
-        row.createSpan({ cls: 'wikidiff-line-total', text: fileGroup.lineTotalsAvailable ? lineCount(fileGroup.added, '+') : '—' });
-        action(row, 'Undo file', async () => { await undoFile(this.journal, fileGroup); new Notice('File changes undone and review data cleared.'); }, 'wikidiff-text-button wikidiff-muted');
-        if (fileGroup.conflict) row.createEl('p', { cls: 'wikidiff-warning wikidiff-file-warning', text: 'Recorded steps do not form a verified sequence. Open review to inspect each step.' });
+        const file = section.createDiv('wikiship-file-group');
+        const row = file.createDiv('wikiship-file-row');
+        action(row, fileGroup.path, () => inspectFile(this.app, this.journal, fileGroup), 'wikiship-text-button wikiship-file-link');
+        row.createSpan({ cls: `wikiship-file-kind${fileGroup.conflict ? ' wikiship-warning' : ''}`, text: fileGroup.category });
+        row.createSpan({ cls: 'wikiship-line-total', text: fileGroup.lineTotalsAvailable ? lineCount(fileGroup.removed, '−') : '—' });
+        row.createSpan({ cls: 'wikiship-line-total', text: fileGroup.lineTotalsAvailable ? lineCount(fileGroup.added, '+') : '—' });
+        action(row, 'Undo file', async () => { await undoFile(this.journal, fileGroup); new Notice('File changes undone and review data cleared.'); }, 'wikiship-text-button wikiship-muted');
+        if (fileGroup.conflict) row.createEl('p', { cls: 'wikiship-warning wikiship-file-warning', text: 'Recorded steps do not form a verified sequence. Open review to inspect each step.' });
       }
     }
   }
@@ -237,16 +237,16 @@ async function inspectFile(app: App, journal: Journal, group: FileReviewGroup) {
 }
 
 function snapshotPanel(parent: HTMLElement, label: string, snapshot: Snapshot | null) {
-  const panel = parent.createDiv('wikidiff-snapshot');
-  panel.dataset.wikidiffSnapshot = label.toLowerCase();
+  const panel = parent.createDiv('wikiship-snapshot');
+  panel.dataset.wikishipSnapshot = label.toLowerCase();
   panel.createEl('h5', { text: label });
-  if (!snapshot) { panel.createEl('p', { cls: 'wikidiff-muted', text: label === 'After approval' ? 'Moves to trash when approved' : 'File does not exist' }); return; }
+  if (!snapshot) { panel.createEl('p', { cls: 'wikiship-muted', text: label === 'After approval' ? 'Moves to trash when approved' : 'File does not exist' }); return; }
   if (snapshot.encoding === 'base64') {
-    panel.createEl('p', { cls: 'wikidiff-muted', text: `Binary file · ${snapshot.size.toLocaleString()} bytes · content retained only while this change is queued` });
+    panel.createEl('p', { cls: 'wikiship-muted', text: `Binary file · ${snapshot.size.toLocaleString()} bytes · content retained only while this change is queued` });
   } else {
     const first = snapshotPage(snapshot.data);
-    const navigation = first.pageCount > 1 ? panel.createDiv('wikidiff-snapshot-navigation wikidiff-actions') : undefined;
-    const source = panel.createEl('pre', { text: first.text, cls: 'wikidiff-source' });
+    const navigation = first.pageCount > 1 ? panel.createDiv('wikiship-snapshot-navigation wikiship-actions') : undefined;
+    const source = panel.createEl('pre', { text: first.text, cls: 'wikiship-source' });
     if (navigation) {
       let currentPage = 0;
       const button = (text: string, target: () => number) => {
@@ -255,7 +255,7 @@ function snapshotPanel(parent: HTMLElement, label: string, snapshot: Snapshot | 
         return element;
       };
       const firstButton = button('First', () => 0), previousButton = button('Previous', () => currentPage - 1);
-      const pageLabel = navigation.createEl('label', { cls: 'wikidiff-snapshot-page-label', text: 'Page ' });
+      const pageLabel = navigation.createEl('label', { cls: 'wikiship-snapshot-page-label', text: 'Page ' });
       const pageInput = pageLabel.createEl('input', { type: 'number', value: '1', attr: {
         min: 1, max: first.pageCount, step: 1, 'aria-label': `${label} snapshot page`,
       } });
@@ -276,14 +276,14 @@ function snapshotPanel(parent: HTMLElement, label: string, snapshot: Snapshot | 
       showPage(0);
     }
   }
-  panel.createEl('div', { cls: 'wikidiff-hash', text: `SHA-256 ${snapshot.hash}` });
+  panel.createEl('div', { cls: 'wikiship-hash', text: `SHA-256 ${snapshot.hash}` });
 }
 
 export class FileReviewModal extends Modal {
   private stop?: () => void;
   constructor(app: App, readonly journal: Journal, readonly operationId: string) { super(app); }
   onOpen() {
-    this.modalEl.addClass('wikidiff-review-modal');
+    this.modalEl.addClass('wikiship-review-modal');
     this.stop = this.journal.subscribe(() => this.renderFile()); this.renderFile();
   }
   onClose() { this.stop?.(); this.contentEl.empty(); }
@@ -295,13 +295,13 @@ export class FileReviewModal extends Modal {
     this.titleEl.setText('Review file');
     if (!batch || !group) { root.createEl('p', { text: 'This file is no longer in the review queue.' }); return; }
     const index = batch.files.indexOf(group);
-    root.createEl('p', { cls: 'wikidiff-path wikidiff-review-file-title', text: group.path });
-    root.createEl('p', { cls: 'wikidiff-muted', text: `${index + 1} of ${batch.files.length} files · ${group.category}` });
-    if (group.conflict) root.createEl('p', { cls: 'wikidiff-warning', text: 'These recorded steps do not form one verified before-and-after chain. Review each step and the current file before approving or undoing.' });
+    root.createEl('p', { cls: 'wikiship-path wikiship-review-file-title', text: group.path });
+    root.createEl('p', { cls: 'wikiship-muted', text: `${index + 1} of ${batch.files.length} files · ${group.category}` });
+    if (group.conflict) root.createEl('p', { cls: 'wikiship-warning', text: 'These recorded steps do not form one verified before-and-after chain. Review each step and the current file before approving or undoing.' });
     if (group.operations.some(op => op.kind === 'delete' && op.status === 'pending-delete')) {
-      root.createEl('p', { cls: 'wikidiff-delete-notice', text: 'The file stays in your vault until approval. Approval moves it to trash. Undo cancels the deletion.' });
+      root.createEl('p', { cls: 'wikiship-delete-notice', text: 'The file stays in your vault until approval. Approval moves it to trash. Undo cancels the deletion.' });
     }
-    const actions = root.createDiv('wikidiff-actions');
+    const actions = root.createDiv('wikiship-actions');
     action(actions, 'Undo file', async () => { await undoFile(this.journal, group); new Notice('File changes undone and review data cleared.'); this.close(); }, 'mod-warning');
     action(actions, 'Approve session', async () => {
       const deletes = batch.operations.filter(op => op.kind === 'delete' && op.status === 'pending-delete').length;
@@ -317,49 +317,49 @@ export class FileReviewModal extends Modal {
     const after = group.last.after?.encoding === 'utf8' ? group.last.after.data : group.last.after ? null : '';
     if (group.conflict) {
       root.createEl('h5', { text: 'Recorded steps' });
-      root.createEl('p', { cls: 'wikidiff-muted', text: 'A combined diff is hidden because the saved steps are not continuous.' });
+      root.createEl('p', { cls: 'wikiship-muted', text: 'A combined diff is hidden because the saved steps are not continuous.' });
     } else if (before !== null && after !== null && before !== after && before.length + after.length <= 400_000) {
       root.createEl('h5', { text: 'Net diff' });
-      const diff = root.createEl('pre', { cls: 'wikidiff-diff' });
+      const diff = root.createEl('pre', { cls: 'wikiship-diff' });
       const parts = diffLines(before, after, { timeout: 1000 });
       if (parts) for (const part of parts) {
         const type = part.added ? 'added' : part.removed ? 'removed' : 'unchanged';
         const lines = part.value.split('\n');
         if (lines.at(-1) === '') lines.pop();
         const visible = type === 'unchanged' && lines.length > 8 ? [...lines.slice(0, 3), `… ${lines.length - 6} unchanged lines …`, ...lines.slice(-3)] : lines;
-        for (const line of visible) diff.createSpan({ cls: `wikidiff-diff-${type}`, text: `${part.added ? '+' : part.removed ? '−' : ' '} ${line}` });
-      } else root.createEl('p', { cls: 'wikidiff-muted', text: 'Diff calculation reached its time limit. Use the recorded snapshots below.' });
+        for (const line of visible) diff.createSpan({ cls: `wikiship-diff-${type}`, text: `${part.added ? '+' : part.removed ? '−' : ' '} ${line}` });
+      } else root.createEl('p', { cls: 'wikiship-muted', text: 'Diff calculation reached its time limit. Use the recorded snapshots below.' });
     } else if (before !== null && after !== null && before !== after) {
-      root.createEl('p', { cls: 'wikidiff-muted', text: 'This change is too large for an inline diff. Use the recorded snapshots below.' });
+      root.createEl('p', { cls: 'wikiship-muted', text: 'This change is too large for an inline diff. Use the recorded snapshots below.' });
     } else if (group.last.kind === 'delete' && group.last.status === 'pending-delete') {
-      root.createEl('p', { cls: 'wikidiff-muted', text: 'This file will be removed from the vault when approved.' });
+      root.createEl('p', { cls: 'wikiship-muted', text: 'This file will be removed from the vault when approved.' });
     } else if (group.first.before?.encoding === 'base64' || group.last.after?.encoding === 'base64') {
-      root.createEl('p', { cls: 'wikidiff-muted', text: 'Binary file. Contents are available in the recovery record.' });
+      root.createEl('p', { cls: 'wikiship-muted', text: 'Binary file. Contents are available in the recovery record.' });
     } else if (group.operations.some(op => op.kind === 'move')) {
-      root.createEl('p', { cls: 'wikidiff-muted', text: 'File moved. Its contents are unchanged.' });
+      root.createEl('p', { cls: 'wikiship-muted', text: 'File moved. Its contents are unchanged.' });
     }
 
-    const history = root.createEl('details', { cls: 'wikidiff-history' });
+    const history = root.createEl('details', { cls: 'wikiship-history' });
     history.createEl('summary', { text: `Operation history · ${group.operations.length}` });
     for (const op of group.operations) {
-      const entry = history.createDiv('wikidiff-history-entry');
-      entry.createDiv({ cls: 'wikidiff-history-description', text: `${new Date(op.timestamp).toLocaleString()} · ${operationLabel(op)} · ${op.status}` });
-      if (op.agent) entry.createDiv({ cls: 'wikidiff-muted', text: op.agent });
-      if (op.error) entry.createEl('p', { cls: 'wikidiff-warning', text: op.error });
-      action(entry, 'Undo step', async () => { await this.journal.undo(op.id); new Notice('Change undone and review data cleared.'); }, 'wikidiff-text-button wikidiff-muted');
+      const entry = history.createDiv('wikiship-history-entry');
+      entry.createDiv({ cls: 'wikiship-history-description', text: `${new Date(op.timestamp).toLocaleString()} · ${operationLabel(op)} · ${op.status}` });
+      if (op.agent) entry.createDiv({ cls: 'wikiship-muted', text: op.agent });
+      if (op.error) entry.createEl('p', { cls: 'wikiship-warning', text: op.error });
+      action(entry, 'Undo step', async () => { await this.journal.undo(op.id); new Notice('Change undone and review data cleared.'); }, 'wikiship-text-button wikiship-muted');
     }
 
-    const recovery = root.createEl('details', { cls: 'wikidiff-snapshots' });
+    const recovery = root.createEl('details', { cls: 'wikiship-snapshots' });
     recovery.createEl('summary', { text: 'Recovery record' });
     for (const op of group.operations) {
-      const details = recovery.createEl('details', { cls: 'wikidiff-recovery-operation' });
+      const details = recovery.createEl('details', { cls: 'wikiship-recovery-operation' });
       details.createEl('summary', { text: `${operationLabel(op)} · ${op.id}` });
-      if (op.error) details.createEl('p', { cls: 'wikidiff-warning', text: op.error });
-      const columns = details.createDiv('wikidiff-snapshot-columns');
+      if (op.error) details.createEl('p', { cls: 'wikiship-warning', text: op.error });
+      const columns = details.createDiv('wikiship-snapshot-columns');
       snapshotPanel(columns, 'Before', op.before);
       snapshotPanel(columns, op.kind === 'delete' && op.status === 'pending-delete' ? 'After approval' : 'After', op.after);
     }
-    root.createEl('p', { cls: 'wikidiff-muted', text: 'Approval clears these review records. wikidiff cannot restore them afterward.' });
+    root.createEl('p', { cls: 'wikiship-muted', text: 'Approval clears these review records. WikiShip cannot restore them afterward.' });
   }
 }
 

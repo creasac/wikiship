@@ -1,11 +1,8 @@
 {
-  "name": "wikidiff-workspace",
+  "name": "wikiship-workspace",
   "private": true,
-  "version": "0.1.4",
-  "workspaces": [
-    "obsidian-plugin",
-    "adapters"
-  ],
+  "version": "0.1.3",
+  "workspaces": ["obsidian-plugin", "adapters"],
   "scripts": {
     "build": "npm run build -w obsidian-plugin",
     "typecheck": "npm run typecheck -w obsidian-plugin",

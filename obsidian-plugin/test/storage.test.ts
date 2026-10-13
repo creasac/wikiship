@@ -6,7 +6,7 @@ import { AtomicStateStore, PathPolicy } from '../src/provenance/storage';
 import { emptyState } from '../src/model';
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
-async function root() { const path = await mkdtemp(join(tmpdir(), 'wikidiff-storage-')); roots.push(path); return path; }
+async function root() { const path = await mkdtemp(join(tmpdir(), 'wikiship-storage-')); roots.push(path); return path; }
 describe('path policy', () => {
   it('rejects traversal, absolute paths, configuration, and generated directories', async () => {
     const dir = await root(), policy = new PathPolicy(dir, '.custom-config');
@@ -29,14 +29,14 @@ describe('path policy', () => {
 });
 describe('atomic journal persistence', () => {
   it('survives reopen and rejects simultaneous writers', async () => {
-    const dir = await root(), data = join(dir, '.obsidian/plugins/wikidiff');
+    const dir = await root(), data = join(dir, '.obsidian/plugins/wikiship');
     const store = new AtomicStateStore(data, dir); await store.open(); expect(await store.load()).toBeNull();
     await store.save(emptyState());
     const second = new AtomicStateStore(data, dir); await expect(second.open()).rejects.toThrow('already open');
     await store.close(); await second.open(); expect(await second.load()).toEqual(emptyState()); await second.close();
   });
   it('does not overwrite externally edited or corrupt state', async () => {
-    const dir = await root(), data = join(dir, '.obsidian/plugins/wikidiff');
+    const dir = await root(), data = join(dir, '.obsidian/plugins/wikiship');
     const store = new AtomicStateStore(data, dir); await store.open(); await store.load(); await store.save(emptyState());
     await writeFile(join(data, 'state.json'), '{bad json');
     await expect(store.save(emptyState())).rejects.toThrow('changed outside');
@@ -45,16 +45,16 @@ describe('atomic journal persistence', () => {
   it('refuses a symlinked data directory', async () => {
     const dir = await root(), outside = await root(); await mkdir(join(dir, '.obsidian'));
     await symlink(outside, join(dir, '.obsidian/plugins'));
-    await expect(new AtomicStateStore(join(dir, '.obsidian/plugins/wikidiff'), dir).open()).rejects.toThrow('symlink');
+    await expect(new AtomicStateStore(join(dir, '.obsidian/plugins/wikiship'), dir).open()).rejects.toThrow('symlink');
   });
   it('resolves the data location correctly when the vault path has a trailing slash', async () => {
-    const dir = await root(), data = join(dir, '.obsidian/plugins/wikidiff');
+    const dir = await root(), data = join(dir, '.obsidian/plugins/wikiship');
     const store = new AtomicStateStore(data, dir + sep);
     await store.open(); await store.load(); await store.save(emptyState()); await store.close();
     expect(JSON.parse(await readFile(join(data, 'state.json'), 'utf8'))).toEqual(emptyState());
   });
   it('refuses a data-directory symlink introduced after opening without writing its target', async () => {
-    const dir = await root(), outside = await root(), data = join(dir, '.obsidian/plugins/wikidiff');
+    const dir = await root(), outside = await root(), data = join(dir, '.obsidian/plugins/wikiship');
     const store = new AtomicStateStore(data, dir);
     await store.open(); await store.load(); await store.save(emptyState());
     const original = await readFile(join(data, 'state.json'), 'utf8');
@@ -66,7 +66,7 @@ describe('atomic journal persistence', () => {
     await rm(data); await rename(data + '-original', data); await store.close();
   });
   it('recovers a confirmed dead local legacy owner under the recovery guard', async () => {
-    const dir = await root(), data = join(dir, '.obsidian/plugins/wikidiff');
+    const dir = await root(), data = join(dir, '.obsidian/plugins/wikiship');
     await mkdir(data, { recursive: true });
     const stale = JSON.stringify({ pid: 2147483647, host: hostname(), token: '00000000-0000-4000-8000-000000000000' });
     await writeFile(join(data, 'state.lock'), stale);
@@ -77,7 +77,7 @@ describe('atomic journal persistence', () => {
     expect(await store.load()).toBeNull(); await store.close();
   });
   it.each(['live', 'foreign', 'unverifiable', 'malformed'])('preserves a %s legacy owner record', async kind => {
-    const dir = await root(), data = join(dir, '.obsidian/plugins/wikidiff'); await mkdir(data, { recursive: true });
+    const dir = await root(), data = join(dir, '.obsidian/plugins/wikiship'); await mkdir(data, { recursive: true });
     const owner = JSON.stringify({ pid: kind === 'live' ? process.pid : 2147483647, host: kind === 'foreign' ? hostname() + '-foreign' : hostname(), token: '00000000-0000-4000-8000-000000000000' });
     const record = kind === 'malformed' ? '{partial' : owner;
     await writeFile(join(data, 'state.lock'), record);
@@ -88,7 +88,7 @@ describe('atomic journal persistence', () => {
     await expect(readFile(join(data, 'state.json'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
   it.each(['live', 'foreign', 'malformed'])('preserves a %s recovery guard', async kind => {
-    const dir = await root(), data = join(dir, '.obsidian/plugins/wikidiff'), guard = join(data, 'state.lock.guard');
+    const dir = await root(), data = join(dir, '.obsidian/plugins/wikiship'), guard = join(data, 'state.lock.guard');
     await mkdir(guard, { recursive: true });
     const token = '00000000-0000-4000-8000-000000000000', path = join(guard, `owner-${token}.json`);
     const record = kind === 'malformed' ? '{partial' : JSON.stringify({ pid: process.pid, host: kind === 'foreign' ? hostname() + '-foreign' : hostname(), token });
@@ -98,7 +98,7 @@ describe('atomic journal persistence', () => {
     await expect(readFile(join(data, 'state.lock'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
   it('rejects lock and guard symlinks without changing their targets', async () => {
-    const dir = await root(), outside = await root(), data = join(dir, '.obsidian/plugins/wikidiff');
+    const dir = await root(), outside = await root(), data = join(dir, '.obsidian/plugins/wikiship');
     await mkdir(data, { recursive: true });
     const target = join(outside, 'owner.json'); await writeFile(target, 'preserve');
     await symlink(target, join(data, 'state.lock'));
