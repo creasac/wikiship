@@ -3,7 +3,7 @@
   "name": "wikiship",
   "version": "0.1.4",
   "minAppVersion": "1.13.1",
-  "description": "Share live editor context and review tracked changes from external AI agents.",
+  "description": "Share live editor context and review tracked changes from external machine minds.",
   "author": "wikiship",
   "isDesktopOnly": true
 }
