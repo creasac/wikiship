@@ -2,7 +2,7 @@
 
 An Obsidian desktop plugin for live editor context and reviewable changes from external agents. Open an ordinary notes folder or project directory as a vault; the files remain canonical.
 
-wikiship adds live selection and cursor context, controlled MCP mutations, a local operation journal, and a native AI Changes view. Your choice of agent, model, and sync tool stays yours.
+wikiship adds live selection and cursor context, controlled MCP mutations, a local operation journal, and a native machine minds' changes view. Your choice of agent, model, and sync tool stays yours.
 
 ## Install for development
 
@@ -25,23 +25,23 @@ Enable **wikiship** and **Local REST API with MCP** under Community plugins. wik
 
 1. Select text in the current note, or place the cursor in a section. The agent calls `wikiship_get_editor_state` to read the active file, selected text, cursor, section metadata, and hashes.
 2. If needed, the agent reads a bounded saved-file excerpt with `wikiship_get_file_state`. Section metadata contains offsets and heading paths, not the section body. If disk and editor hashes differ, save or resolve that difference before editing.
-3. Let the agent edit using a `wikiship_*` mutation tool. The **AI Changes** panel opens when the first change arrives and lists changes by session and file.
+3. Let the agent edit using a `wikiship_*` mutation tool. The **machine minds' changes** panel opens when the first change arrives and lists changes by session and file.
 4. Review the net diff for each file, or expand its operation history for individual steps. **Undo file** restores its earlier state; **Approve session** keeps approved edits and clears WikiShip's review data. A staged deletion leaves the file in place until approval, then moves it to trash.
 
 Start your conversation in your configured MCP client. See the [client setup and tool guide](docs/mcp-tools.md) for connection and safe-edit instructions.
 
-The ribbon and clickable status bar open **AI Changes**. The command palette contains these six wikiship commands:
+The wikiship icon, right-panel tab, and clickable status bar open **machine minds' changes**. The command palette contains these six wikiship commands:
 
-- **Show AI Changes**
-- **Review next AI file**
+- **Show machine minds' changes**
+- **Review next file**
 - **Approve all changes**
-- **Undo all AI changes**
+- **Undo all machine minds' changes**
 - **Recover interrupted operations**
 - **Reconnect Local REST API**
 
 ## What v1 guarantees
 
-- Only calls through wikiship's mutation interface receive AI attribution. Human typing, sync events, and external filesystem writes never become AI changes just because a watcher observed them.
+- Only calls through wikiship's mutation interface receive machine-mind attribution. Human typing, sync events, and external filesystem writes never become machine minds' changes just because a watcher observed them.
 - Pending changes keep before/after content and hashes locally so you can inspect or undo them. Approval clears that review data. Deletion is staged; approval moves the file to trash.
 - Live reads validate the editor, selection, and cursor across asynchronous reads. Section edits require a unique full heading path; changed targets are refused.
 - File edits use Obsidian's atomic `process` API and recheck disk content and open editor buffers. Reverting is deliberately conservative: the entire file must match the recorded result.

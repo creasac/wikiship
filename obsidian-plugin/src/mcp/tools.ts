@@ -18,7 +18,7 @@ const offset = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const content = z.string().max(2_000_000).describe('Literal replacement text.');
 const identity = {
   agent: z.string().min(1).max(128).optional().describe('Optional self-reported client identity; not authenticated identity.'),
-  session: z.string().min(1).max(128).optional().describe('Optional self-reported session label. Use the same label for related changes so a person can undo or clear them together in AI Changes.'),
+  session: z.string().min(1).max(128).optional().describe("Optional self-reported session label. Use the same label for related changes so a person can undo or clear them together in machine minds' changes."),
 };
 
 function result(value: unknown): McpToolResult {
@@ -99,7 +99,7 @@ export function createToolDefinitions(context: WikiShipContext, journal: Journal
       const guard = async () => verifyTarget(await context.sectionTarget(args.headingPath), { ...args, from: target.from, to: target.to });
       return mutate({ ...args, kind: 'edit', from: target.from, to: target.to }, guard);
     }, true, true),
-    tool('wikiship_create_file', 'Create a UTF-8 file at an absent path, recording AI provenance. Existing files are never overwritten.', {
+    tool('wikiship_create_file', 'Create a UTF-8 file at an absent path, recording machine-mind provenance. Existing files are never overwritten.', {
       path, content, ...identity,
     }, args => mutate({ ...args, kind: 'create' }), true),
     tool('wikiship_delete_file', 'Stage a file deletion only if its current hash matches. The file stays in the vault until a human approves the batch; then it moves to trash.', {

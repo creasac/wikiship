@@ -15,7 +15,7 @@ class ChangeMarker extends GutterMarker {
     marker.className = `wikiship-gutter-marker wikiship-gutter-${first.kind}`;
     marker.type = 'button';
     marker.textContent = first.kind === 'inserted' ? '▏' : first.kind === 'deleted' ? '⊖' : '◆';
-    marker.title = `Inspect ${this.locations.length > 1 ? this.locations.length + ' queued AI changes' : 'queued AI change'}`;
+    marker.title = `Inspect ${this.locations.length > 1 ? this.locations.length + " queued machine minds' changes" : "queued machine minds' change"}`;
     marker.setAttribute('aria-label', marker.title);
     marker.dataset.wikishipOperation = first.operationId;
     return marker;

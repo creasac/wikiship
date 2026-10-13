@@ -63,15 +63,15 @@ Use a disposable ordinary project folder containing Markdown and source files. I
 2. Put the cursor in a section in B. Verify its heading path/range; read its saved body with `wikiship_get_file_state` and compare hashes. Move the selection/cursor after reading and verify a mutation using the old target is refused.
 3. Change B through a wikiship tool. Verify immediate editor update, subtle gutter marker, sidebar entry, and literal before/after diff.
 4. Undo a file and verify its record disappears. Approve a batch; verify files stay changed and the journal no longer contains those snapshots.
-5. Repeat an AI edit, then type a human change before undoing. Verify a conflict and preservation of the human edit.
+5. Repeat a machine-mind edit, then type a human change before undoing. Verify a conflict and preservation of the human edit.
 6. Stage a delete through MCP. Verify the file stays in the vault during review, undo leaves it in place, and approval moves it to trash. Repeat with a binary file within the 5 MiB limit.
-7. Verify ordinary typing and direct external writes create no AI journal entry.
+7. Verify ordinary typing and direct external writes create no machine-mind journal entry.
 8. Disable/re-enable the host and wikiship in either order. Verify tools are cleaned up and registered once, and the journal survives.
 9. Verify the palette contains exactly the six commands listed in the [README](../README.md). Use your configured MCP client directly.
 
 ## Operational notes
 
-If a mutation reports finalization failure, do not repeat it blindly. Inspect **AI Changes** and run **Recover interrupted operations**. If recovery reports uncertainty, inspect the saved before/after states and resolve the filesystem state before retrying. Recovery never overwrites files.
+If a mutation reports finalization failure, do not repeat it blindly. Inspect **machine minds' changes** and run **Recover interrupted operations**. If recovery reports uncertainty, inspect the saved before/after states and resolve the filesystem state before retrying. Recovery never overwrites files.
 
 During disable/re-enable in the same Obsidian renderer, startup waits for the previous wikiship instance to finish accepted operations and release its own journal lock. This wait survives plugin module reloads and does not delay other vaults. Disabling a still-starting instance cancels further setup and waits for any in-flight lock acquisition before cleanup. This in-process wait is separate from the dead-owner recovery below.
 

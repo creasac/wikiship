@@ -54,7 +54,7 @@ export class Journal {
   }
   private assertSettled() {
     this.assertStorage();
-    if (this.current.operations.some(o => ['prepared', 'reverting', 'uncertain', 'committing-delete'].includes(o.status))) throw new Error('An operation needs recovery. Inspect AI Changes and run Recover interrupted operations before further mutations.');
+    if (this.current.operations.some(o => ['prepared', 'reverting', 'uncertain', 'committing-delete'].includes(o.status))) throw new Error("An operation needs recovery. Inspect machine minds' changes and run Recover interrupted operations before further mutations.");
   }
   async mutate(input: { kind: Operation['kind']; path: string; target?: string; expectedHash?: string; content?: string; from?: number; to?: number; agent?: string; session?: string }, guard?: () => Promise<void> | void) {
     return this.run(async () => {
@@ -85,12 +85,12 @@ export class Journal {
         agent: input.agent, session: input.session, from: input.from, to: input.to });
       await this.updateOperation(op); // Durable write-ahead intent; no filesystem mutation before this.
       // Deletion is intentionally staged. The file remains in the vault until a
-      // human approves the batch from AI Changes, where it will go to trash.
+      // human approves the batch from machine minds' changes, where it will go to trash.
       if (input.kind === 'delete') return structuredClone(op);
       try { await guard?.(); }
       catch (error) {
         // A rejected editor guard never reached the adapter. In particular, a
-        // human's coincidentally matching edit must not acquire AI provenance.
+        // human's coincidentally matching edit must not acquire machine-mind provenance.
         await this.removeOperations(new Set([op.id]));
         throw new Error(`Mutation cancelled before writing; operation ${op.id}: ${String(error)}`);
       }

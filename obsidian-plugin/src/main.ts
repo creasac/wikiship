@@ -58,7 +58,7 @@ export default class WikiShip extends Plugin {
           event.preventDefault(); this.run(() => this.openView(CHANGES_VIEW_TYPE));
         }
       });
-      this.connection.setAttribute('aria-label', 'Open WikiShip AI Changes');
+      this.connection.setAttribute('aria-label', "Open machine minds' changes");
       const reviewable = () => this.journal.state.operations.some(op => !['prepared', 'committing-delete'].includes(op.status));
       let hasReviewableChanges = reviewable();
       if (hasReviewableChanges) this.run(() => this.openView(CHANGES_VIEW_TYPE));
@@ -71,7 +71,7 @@ export default class WikiShip extends Plugin {
         hasReviewableChanges = hasReviewable;
         this.connection?.setText(count ? `wikiship · ${count} change${count === 1 ? '' : 's'} · review` : this.api ? 'wikiship · MCP ready' : 'wikiship · enable Local REST API');
       }));
-      this.addRibbonIcon(WIKISHIP_ICON_ID, 'wikiship AI Changes', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
+      this.addRibbonIcon(WIKISHIP_ICON_ID, "wikiship: machine minds' changes", () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
       this.addCommands();
       this.addSettingTab(new WikiShipSettings(this.app, this));
       this.registerEvent(this.app.workspace.on('obsidian-local-rest-api:loaded', () => this.connectMcp()));
@@ -91,10 +91,10 @@ export default class WikiShip extends Plugin {
     void Promise.resolve().then(task).catch(error => new Notice(`wikiship: ${message(error)}`, 9000));
   }
   private addCommands() {
-    this.addCommand({ id: 'open-changes', name: 'Show AI Changes', callback: () => this.run(() => this.openView(CHANGES_VIEW_TYPE)) });
-    this.addCommand({ id: 'next-change', name: 'Review next AI file', callback: () => this.run(() => nextChange(this.app, this.journal)) });
+    this.addCommand({ id: 'open-changes', name: "Show machine minds' changes", callback: () => this.run(() => this.openView(CHANGES_VIEW_TYPE)) });
+    this.addCommand({ id: 'next-change', name: 'Review next file', callback: () => this.run(() => nextChange(this.app, this.journal)) });
     this.addCommand({ id: 'complete-changes', name: 'Approve all changes', callback: () => this.run(() => this.journal.completeAll()) });
-    this.addCommand({ id: 'undo-changes', name: 'Undo all AI changes', callback: () => this.run(() => this.journal.undoAll()) });
+    this.addCommand({ id: 'undo-changes', name: "Undo all machine minds' changes", callback: () => this.run(() => this.journal.undoAll()) });
     this.addCommand({ id: 'recover', name: 'Recover interrupted operations', callback: () => this.run(() => this.journal.recover()) });
     this.addCommand({ id: 'reconnect-mcp', name: 'Reconnect Local REST API', callback: () => this.connectMcp() });
   }

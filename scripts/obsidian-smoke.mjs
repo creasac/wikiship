@@ -176,7 +176,7 @@ try {
   await waitFor(async () => !(await state()).operations.some(op => op.id === edited.id), 'change undone and cleared');
   assert.equal(await readFile(join(vault, 'B.md'), 'utf8'), noteB);
   await page.keyboard.press('Escape');
-  passed('Live editor, auto-opened AI Changes, literal before/after diff, undo, and queue clearing work');
+  passed("Live editor, auto-opened machine minds' changes, literal before/after diff, undo, and queue clearing work");
 
   await openNote('B.md', 'Use ordinary');
   const fileState = await call('wikiship_get_file_state', { path: 'B.md' });

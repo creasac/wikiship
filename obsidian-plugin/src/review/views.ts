@@ -1,5 +1,6 @@
 import { ItemView, MarkdownView, Modal, Notice, type App, type WorkspaceLeaf } from 'obsidian';
 import { diffLines } from 'diff';
+import { WIKISHIP_ICON_ID } from '../icon';
 import type { Operation, Snapshot } from '../model';
 import type { Journal } from '../provenance/journal';
 import { locationsForFile, operationLabel } from './changes';
@@ -23,7 +24,7 @@ function action(parent: HTMLElement, label: string, callback: () => unknown | Pr
 
 async function openLocation(app: App, path: string, from?: number, to?: number) {
   const file = app.vault.getFileByPath(path);
-  if (!file) throw new Error('This file is missing. Its recorded content is still available in AI Changes.');
+  if (!file) throw new Error("This file is missing. Its recorded content is still available in machine minds' changes.");
   const leaf = app.workspace.getLeaf(false);
   await leaf.openFile(file, { active: true });
   if (from !== undefined && leaf.view instanceof MarkdownView) {
@@ -162,8 +163,8 @@ export class ChangesView extends ItemView {
   private stop?: () => void;
   constructor(leaf: WorkspaceLeaf, readonly journal: Journal) { super(leaf); }
   getViewType() { return CHANGES_VIEW_TYPE; }
-  getDisplayText() { return 'AI Changes'; }
-  getIcon() { return 'git-pull-request'; }
+  getDisplayText() { return "machine minds' changes"; }
+  getIcon() { return WIKISHIP_ICON_ID; }
   async onOpen() {
     this.contentEl.addClass('wikiship-view');
     this.stop = this.journal.subscribe(() => this.render()); this.render();
@@ -171,26 +172,18 @@ export class ChangesView extends ItemView {
   async onClose() { this.stop?.(); }
   private render() {
     const root = this.contentEl; root.empty();
-    root.createEl('h4', { text: 'AI Changes' });
+    root.createEl('h4', { text: "machine minds' changes" });
     const all = this.journal.state.operations;
     if (all.some(op => ['prepared', 'uncertain', 'reverting', 'committing-delete'].includes(op.status))) {
       root.createEl('p', { cls: 'wikiship-warning', text: 'An interrupted operation needs recovery before changes can be undone or cleared.' });
       action(root, 'Recover interrupted operations', () => this.journal.recover());
     }
     if (!all.length) {
-      root.createEl('p', { cls: 'wikiship-muted', text: 'Changes made through WikiShip appear here. Your ordinary edits are never labeled as AI changes.' }); return;
+      root.createEl('p', { cls: 'wikiship-muted', text: "Changes made by machine minds through wikiship appear here. Your ordinary edits are not included." }); return;
     }
     const batches = reviewBatches(all);
     const tools = root.createDiv('wikiship-actions');
     action(tools, 'Review next file', () => nextChange(this.app, this.journal));
-    action(tools, 'Undo all changes', async () => {
-      const result = await this.journal.undoAll(); new Notice(`Undid ${result.undone} change(s). Review data cleared.`);
-    }, 'mod-warning');
-    action(tools, 'Approve all changes', async () => {
-      const deletes = all.filter(op => op.kind === 'delete' && op.status === 'pending-delete').length;
-      const result = await this.journal.completeAll();
-      new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} file(s) to trash` : ''}.`);
-    }, 'mod-cta');
     for (const batch of batches) {
       const { session, operations } = batch;
       const section = root.createDiv('wikiship-session-group');

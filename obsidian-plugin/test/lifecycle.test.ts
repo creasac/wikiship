@@ -62,10 +62,10 @@ describe('plugin journal lifecycle', () => {
     await instance.onload();
     try {
       expect(commands.mock.calls.map(([command]) => ({ id: command.id, name: command.name }))).toEqual([
-        { id: 'open-changes', name: 'Show AI Changes' },
-        { id: 'next-change', name: 'Review next AI file' },
+        { id: 'open-changes', name: "Show machine minds' changes" },
+        { id: 'next-change', name: 'Review next file' },
         { id: 'complete-changes', name: 'Approve all changes' },
-        { id: 'undo-changes', name: 'Undo all AI changes' },
+        { id: 'undo-changes', name: "Undo all machine minds' changes" },
         { id: 'recover', name: 'Recover interrupted operations' },
         { id: 'reconnect-mcp', name: 'Reconnect Local REST API' },
       ]);

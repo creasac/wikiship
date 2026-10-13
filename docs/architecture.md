@@ -30,7 +30,7 @@ The journal is a pending review queue, not a permanent history. The panel groups
 
 Undoing one change or a session requires the current file to match the recorded state, checks any destination is absent, persists reverse intent, then restores the previous state. Newer human content in either disk or an open editor causes a conflict. Sessions undo newest first and stop at the first conflict without overwriting newer content. Approving a batch leaves edits/creates/moves in place, moves staged deletions to trash, and removes the batch records. Undo also removes the records. Once cleared, WikiShip cannot restore them.
 
-Gutter positions are derived only through verified journal hash chains. Unknown human changes suppress precise markers instead of putting them on unrelated text; the sidebar continues to show the recorded operation. Multiple AI edits can move earlier marker locations through a known chain. Deletions retain a marker at the checked deletion point and preserve their text in the diff.
+Gutter positions are derived only through verified journal hash chains. Unknown human changes suppress precise markers instead of putting them on unrelated text; the sidebar continues to show the recorded operation. Multiple machine-mind edits can move earlier marker locations through a known chain. Deletions retain a marker at the checked deletion point and preserve their text in the diff.
 
 ## MCP and trust boundary
 
