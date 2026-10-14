@@ -18,7 +18,6 @@ The supplied workspace was empty. Its `.git` mount initially had no repository m
 
 ## Safety decisions
 
-- Only calls through wikiship mutation tools receive machine-mind attribution. Watcher events are not a source of attribution.
 - Require expected file SHA-256 for edits/deletes/moves; create must assert absence. Never overwrite a destination.
 - Undo requires the current file to match the recorded after hash. This may refuse unrelated later human edits, but preserves all newer work.
 - Keep before/after content only in the pending review queue. Explicit undo or approval clears it; do not retain a wikiship history after clearing. Fail closed if journal persistence fails.

@@ -266,7 +266,7 @@ try {
   await bridgeClient.connect(new StdioClientTransport({ command: process.execPath,
     args: [join(repository, 'adapters', 'stdio-bridge.mjs')],
     env: { wikiship_MCP_URL: `http://127.0.0.1:${port}/mcp/`, wikiship_API_KEY: token }, stderr: 'pipe' }));
-  assert.equal((await bridgeClient.listTools()).tools.length, 19);
+  assert.equal((await bridgeClient.listTools()).tools.length, 24);
   const bridgeContext = await bridgeClient.callTool({ name: 'wikiship_get_editor_state' });
   assert.ok(!bridgeContext.isError);
   assert.equal(JSON.parse(bridgeContext.content.find(block => block.type === 'text').text).activeFile, 'B.md');

@@ -1,7 +1,7 @@
 import { ItemView, MarkdownView, Modal, Notice, type App, type WorkspaceLeaf } from 'obsidian';
 import { diffLines } from 'diff';
 import { wikishipIconId } from '../icon';
-import type { Operation, Snapshot } from '../model';
+import { folderEntries, type FolderEntry, type Operation, type Snapshot } from '../model';
 import type { Journal } from '../provenance/journal';
 import { locationsForFile, operationLabel } from './changes';
 import { snapshotPage } from './paging';
@@ -60,7 +60,15 @@ interface FileReviewGroup {
   conflict: boolean;
 }
 
-interface ReviewBatch { session?: string; operations: Operation[]; files: FileReviewGroup[]; }
+interface FolderReviewGroup {
+  operation: Operation;
+  path: string;
+  category: 'Added' | 'Deleted' | 'Moved';
+  entries: FolderEntry[];
+  needsReview: boolean;
+}
+
+interface ReviewBatch { session?: string; operations: Operation[]; files: FileReviewGroup[]; folders: FolderReviewGroup[]; }
 
 function visibleLines(value: string): number {
   if (!value) return 0;
@@ -89,7 +97,8 @@ function reviewBatches(operations: Operation[]): ReviewBatch[] {
   return [...batches].map(([session, items]) => {
     const groups: FileReviewGroup[] = [];
     const owner = new Map<string, FileReviewGroup>();
-    for (const op of items) {
+    const folderOperations = items.filter(op => op.kind.endsWith('-folder'));
+    for (const op of items.filter(operation => !operation.kind.endsWith('-folder'))) {
       const group = owner.get(op.path);
       if (group) {
         group.operations.push(op); group.last = op;
@@ -120,7 +129,14 @@ function reviewBatches(operations: Operation[]): ReviewBatch[] {
         file.removed = totals.removed; file.added = totals.added; file.lineTotalsAvailable = totals.available;
       } else file.lineTotalsAvailable = false;
     }
-    return { session, operations: items, files: groups };
+    const folders: FolderReviewGroup[] = folderOperations.map(operation => ({
+      operation,
+      path: operation.kind === 'move-folder' ? `${operation.path} → ${operation.target}` : operation.path,
+      category: operation.kind === 'create-folder' ? 'Added' : operation.kind === 'delete-folder' ? 'Deleted' : 'Moved',
+      entries: folderEntries((operation.kind === 'delete-folder' ? operation.before : operation.after)!),
+      needsReview: !['applied', 'pending-delete'].includes(operation.status),
+    }));
+    return { session, operations: items, files: groups, folders };
   }).sort((a, b) => latestTimestamp(b.operations).localeCompare(latestTimestamp(a.operations)));
 }
 
@@ -133,15 +149,17 @@ function displayFilePath(operations: Operation[]) {
 
 function lineCount(value: number, sign: '−' | '+') { return value ? `${sign} ${value}` : ''; }
 
-function formatAgents(operations: Operation[]) {
-  const agents = [...new Set(operations.map(op => op.agent).filter((name): name is string => !!name))];
-  return agents.length ? agents.join(', ') : 'Agent not recorded';
-}
-
 function latestTimestamp(operations: Operation[]) {
   return operations.reduce((latest, op) => op.timestamp > latest ? op.timestamp : latest, operations[0]!.timestamp);
 }
-function formatBatchTime(operations: Operation[]) { return new Date(latestTimestamp(operations)).toLocaleString(); }
+function formatTimestamp(timestamp: string) {
+  const date = new Date(timestamp);
+  const dateText = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    .formatToParts(date).map(part => part.type === 'month' ? part.value.toLowerCase() : part.value).join('');
+  const timeText = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+  return `${dateText}, ${timeText}`;
+}
+function formatBatchTime(operations: Operation[]) { return formatTimestamp(latestTimestamp(operations)); }
 
 async function undoFile(journal: Journal, group: FileReviewGroup) {
   for (const op of [...group.operations].reverse()) await journal.undo(op.id);
@@ -167,17 +185,38 @@ export class ChangesView extends ItemView {
       action(root, 'Recover interrupted operations', () => this.journal.recover());
     }
     if (!all.length) {
-      root.createEl('p', { cls: 'wikiship-muted', text: "Changes made by machine minds through wikiship appear here. Your ordinary edits are not included." }); return;
+      root.createEl('p', { cls: 'wikiship-muted', text: 'No changes to review.' }); return;
     }
+    root.createEl('p', { cls: 'wikiship-muted wikiship-approval-hint', text: 'Approve to keep the changes and clear the review.' });
     const batches = reviewBatches(all);
     for (const batch of batches) {
       const { session, operations } = batch;
       const section = root.createDiv('wikiship-session-group');
       const title = session || 'Unlabelled session';
       section.createEl('h5', { text: title, cls: 'wikiship-path' });
-      section.createEl('div', { cls: 'wikiship-muted wikiship-batch-meta', text: `${formatBatchTime(operations)} · ${formatAgents(operations)}` });
-      for (const fileGroup of batch.files) {
-        const file = section.createDiv('wikiship-file-group');
+      section.createEl('div', { cls: 'wikiship-muted wikiship-batch-meta', text: formatBatchTime(operations) });
+      for (const folderGroup of batch.folders) {
+        const { operation } = folderGroup;
+        const details = section.createEl('details', { cls: 'wikiship-folder-review' });
+        const summary = details.createEl('summary', { cls: 'wikiship-folder-summary' });
+        const filenameClass = folderGroup.category === 'Added' ? ' wikiship-file-added'
+          : folderGroup.category === 'Deleted' ? ' wikiship-file-deleted' : '';
+        const marker = folderGroup.category === 'Added' ? '+ ' : folderGroup.category === 'Deleted' ? '− ' : '↔ ';
+        summary.createSpan({ cls: `wikiship-file-link${filenameClass}`, text: `${marker}${folderGroup.path}/` });
+        summary.createSpan({ cls: 'wikiship-file-meta', text: `folder · ${folderGroup.entries.filter(entry => entry.kind === 'file').length} files · ${folderGroup.entries.filter(entry => entry.kind === 'folder').length} subfolders` });
+        if (folderGroup.needsReview) details.createEl('p', { cls: 'wikiship-warning wikiship-file-warning', text: operation.error ?? 'Folder operation needs recovery before approval.' });
+        if (!folderGroup.entries.length) details.createEl('div', { cls: 'wikiship-muted wikiship-folder-empty', text: 'Empty folder' });
+        else {
+          const contents = details.createDiv('wikiship-folder-contents');
+          const rootPath = operation.kind === 'move-folder' ? operation.target! : operation.path;
+          for (const entry of folderGroup.entries) {
+            if (entry.kind === 'folder') contents.createDiv({ cls: 'wikiship-folder-child wikiship-muted', text: `▸ ${entry.path}/` });
+            else action(contents, entry.path, () => openLocation(this.app, `${rootPath}/${entry.path}`), 'wikiship-text-button wikiship-folder-child');
+          }
+        }
+      }
+      for (const [index, fileGroup] of batch.files.entries()) {
+        const file = section.createDiv(`wikiship-file-group${index === 0 ? ' wikiship-first-file-group' : ''}`);
         const filenameClass = fileGroup.category === 'Added' ? ' wikiship-file-added'
           : fileGroup.category === 'Deleted' ? ' wikiship-file-deleted' : '';
         const row = action(file, '', () => inspectFile(this.app, this.journal, fileGroup), 'wikiship-text-button wikiship-file-row');
@@ -190,9 +229,9 @@ export class ChangesView extends ItemView {
       }
       const sessionActions = section.createDiv('wikiship-session-actions');
       action(sessionActions, 'Approve', async () => {
-        const deletes = operations.filter(op => op.kind === 'delete' && op.status === 'pending-delete').length;
+        const deletes = operations.filter(op => ['delete', 'delete-folder'].includes(op.kind) && op.status === 'pending-delete').length;
         const result = await this.journal.completeSession(session);
-        new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} file(s) to trash` : ''}.`);
+        new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} item(s) to trash` : ''}.`);
       }, 'mod-cta');
       action(sessionActions, 'Undo', async () => {
         const result = await this.journal.undoSession(session); new Notice(`Undid ${result.undone} change(s). Review data cleared.`);
@@ -276,9 +315,9 @@ export class FileReviewModal extends Modal {
     const actions = root.createDiv('wikiship-actions');
     action(actions, 'Undo file', async () => { await undoFile(this.journal, group); new Notice('File changes undone and review data cleared.'); this.close(); }, 'mod-warning');
     action(actions, 'Approve session', async () => {
-      const deletes = batch.operations.filter(op => op.kind === 'delete' && op.status === 'pending-delete').length;
+      const deletes = batch.operations.filter(op => ['delete', 'delete-folder'].includes(op.kind) && op.status === 'pending-delete').length;
       const result = await this.journal.completeSession(batch.session);
-      new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} file(s) to trash` : ''}.`); this.close();
+      new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} item(s) to trash` : ''}.`); this.close();
     }, 'mod-cta');
     action(actions, 'Next file', async () => { this.close(); await nextFile(this.app, this.journal, this.operationId); });
     const latest = group.operations.at(-1)!;
@@ -315,8 +354,7 @@ export class FileReviewModal extends Modal {
     history.createEl('summary', { text: `Operation history · ${group.operations.length}` });
     for (const op of group.operations) {
       const entry = history.createDiv('wikiship-history-entry');
-      entry.createDiv({ cls: 'wikiship-history-description', text: `${new Date(op.timestamp).toLocaleString()} · ${operationLabel(op)} · ${op.status}` });
-      if (op.agent) entry.createDiv({ cls: 'wikiship-muted', text: op.agent });
+      entry.createDiv({ cls: 'wikiship-history-description', text: `${formatTimestamp(op.timestamp)} · ${operationLabel(op)} · ${op.status}` });
       if (op.error) entry.createEl('p', { cls: 'wikiship-warning', text: op.error });
       action(entry, 'Undo step', async () => { await this.journal.undo(op.id); new Notice('Change undone and review data cleared.'); }, 'wikiship-text-button wikiship-muted');
     }

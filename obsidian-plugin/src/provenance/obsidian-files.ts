@@ -1,7 +1,7 @@
-import { App, MarkdownView, TFile } from 'obsidian';
+import { App, MarkdownView, TFile, TFolder } from 'obsidian';
 import * as fs from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { bytes, hash, MutationPreconditionError, snapshot, textOf, type Operation, type Snapshot, type WorkspaceFiles } from '../model';
+import { bytes, folderSnapshot, hash, MutationPreconditionError, snapshot, textOf, type Operation, type Snapshot, type WorkspaceFiles } from '../model';
 import { MAX_FILE_BYTES, PathPolicy } from './storage';
 
 export class ObsidianFiles implements WorkspaceFiles {
@@ -17,6 +17,31 @@ export class ObsidianFiles implements WorkspaceFiles {
     const content = new Uint8Array(await this.app.vault.adapter.readBinary(path));
     if (content.byteLength > MAX_FILE_BYTES) throw new Error('File exceeds 5 MiB.');
     return snapshot(content);
+  }
+  async readFolder(path: string): Promise<Snapshot | null> {
+    const absolute = await this.policy.check(path);
+    let stat;
+    try { stat = await fs.stat(absolute); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+    if (!stat.isDirectory()) throw new Error('wikiship folder operations require a directory.');
+    const root = this.app.vault.getAbstractFileByPath(path);
+    if (!(root instanceof TFolder)) throw new MutationPreconditionError('Folder is no longer available in the vault.');
+    const entries: { path: string; kind: 'file' | 'folder'; hash?: string; size?: number }[] = [];
+    const visit = async (folder: TFolder) => {
+      for (const child of folder.children) {
+        const relative = child.path.slice(path.length + 1);
+        await this.policy.check(child.path);
+        if (child instanceof TFolder) {
+          entries.push({ path: relative, kind: 'folder' });
+          await visit(child);
+        } else if (child instanceof TFile) {
+          const content = new Uint8Array(await this.app.vault.adapter.readBinary(child.path));
+          entries.push({ path: relative, kind: 'file', hash: hash(content), size: content.byteLength });
+        } else throw new Error(`Unsupported vault item inside folder: ${child.path}`);
+      }
+    };
+    await visit(root);
+    return folderSnapshot(entries);
   }
   async trash(path: string, expected: Snapshot): Promise<void> {
     const current = await this.read(path);
@@ -61,6 +86,49 @@ export class ObsidianFiles implements WorkspaceFiles {
       throw new MutationPreconditionError(error instanceof Error ? error.message : String(error));
     }
   }
+  private async assertFolderState(path: string, expected: Snapshot | null) {
+    try {
+      const current = await this.readFolder(path);
+      if (current?.hash !== expected?.hash) throw new MutationPreconditionError('Conflict: folder contents changed before the operation could be applied.');
+    } catch (error) {
+      throw new MutationPreconditionError(error instanceof Error ? error.message : String(error));
+    }
+  }
+  private async checkFolderParent(path: string) {
+    const parentPath = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    if (parentPath && (await this.readFolder(parentPath)) === null) throw new MutationPreconditionError('Parent folder must already exist.');
+  }
+  private async applyFolder(op: Operation, reverse: boolean) {
+    if (op.kind === 'delete-folder') throw new MutationPreconditionError('Folder deletion is staged and only runs after approval.');
+    if (op.kind === 'create-folder') {
+      if (reverse) {
+        await this.assertFolderState(op.path, op.after);
+        const folder = this.app.vault.getAbstractFileByPath(op.path);
+        if (!(folder instanceof TFolder) || folder.children.length) throw new MutationPreconditionError('Conflict: created folder is no longer empty.');
+        await this.app.vault.adapter.rmdir(op.path, false);
+      } else {
+        await this.assertFolderState(op.path, null);
+        await this.checkFolderParent(op.path);
+        await this.app.vault.createFolder(op.path);
+      }
+      return;
+    }
+    const source = reverse ? op.target! : op.path, target = reverse ? op.path : op.target!;
+    const expected = reverse ? op.after : op.before;
+    if (target === source || target.startsWith(`${source}/`) || source.startsWith(`${target}/`)) throw new MutationPreconditionError('Folder cannot be moved into itself or one of its descendants.');
+    await this.assertFolderState(source, expected);
+    await this.assertFolderState(target, null);
+    await this.checkFolderParent(target);
+    const folder = this.app.vault.getAbstractFileByPath(source);
+    if (!(folder instanceof TFolder)) throw new MutationPreconditionError('Folder is no longer available to move.');
+    await this.app.vault.rename(folder, target);
+  }
+  async trashFolder(path: string, expected: Snapshot): Promise<void> {
+    await this.assertFolderState(path, expected);
+    const folder = this.app.vault.getAbstractFileByPath(path);
+    if (!(folder instanceof TFolder)) throw new MutationPreconditionError('Conflict: the folder is no longer available to move to trash.');
+    await this.app.vault.trash(folder, false);
+  }
   private async create(path: string, value: Snapshot) {
     await this.assertState(path, null);
     try {
@@ -73,6 +141,7 @@ export class ObsidianFiles implements WorkspaceFiles {
     else await this.app.vault.createBinary(path, Uint8Array.from(bytes(value)).buffer);
   }
   async apply(op: Operation, reverse: boolean) {
+    if (op.kind.endsWith('-folder')) return this.applyFolder(op, reverse);
     const from = reverse ? op.after : op.before, to = reverse ? op.before : op.after;
     if (op.kind === 'move') {
       const source = reverse ? op.target! : op.path, target = reverse ? op.path : op.target!;

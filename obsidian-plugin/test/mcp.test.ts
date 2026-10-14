@@ -8,7 +8,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { createToolDefinitions, type EditorTarget, type wikishipContext } from '../src/mcp/tools';
 import { Journal } from '../src/provenance/journal';
 import { headingRanges, sameHeading } from '../src/context/references';
-import { hash, textSnapshot, type Operation, type Snapshot, type State, type StateStore, type WorkspaceFiles } from '../src/model';
+import { folderSnapshot, hash, textSnapshot, type Operation, type Snapshot, type State, type StateStore, type WorkspaceFiles } from '../src/model';
 
 class MemoryStore implements StateStore {
   saved: State | null = null;
@@ -17,12 +17,32 @@ class MemoryStore implements StateStore {
 }
 class MemoryFiles implements WorkspaceFiles {
   values = new Map<string, Snapshot>();
+  folders = new Map<string, Snapshot>();
   async read(path: string) { return this.values.get(path) ?? null; }
+  async readFolder(path: string) { return this.folders.get(path) ?? null; }
   async trash(path: string, expected: Snapshot) {
     if ((await this.read(path))?.hash !== expected.hash) throw new Error('Conflict: changed before trash.');
     this.values.delete(path);
   }
+  async trashFolder(path: string, expected: Snapshot) {
+    if ((await this.readFolder(path))?.hash !== expected.hash) throw new Error('Conflict: folder changed before trash.');
+    this.folders.delete(path);
+  }
   async apply(op: Operation, reverse: boolean) {
+    if (op.kind.endsWith('-folder')) {
+      const source = reverse && op.kind === 'move-folder' ? op.target! : op.path;
+      const expected = reverse ? op.after : op.before;
+      if ((await this.readFolder(source))?.hash !== expected?.hash) throw new Error('Conflict: folder changed during write.');
+      if (op.kind === 'move-folder') {
+        const target = reverse ? op.path : op.target!;
+        if (this.folders.has(target)) throw new Error('Conflict: folder destination exists.');
+        this.folders.set(target, expected!); this.folders.delete(source);
+      } else if (op.kind === 'create-folder') {
+        const next = reverse ? op.before : op.after;
+        if (next) this.folders.set(source, next); else this.folders.delete(source);
+      }
+      return;
+    }
     const source = reverse && op.kind === 'move' ? op.target! : op.path;
     const expected = reverse ? op.after : op.before;
     if ((await this.read(source))?.hash !== expected?.hash) throw new Error('Conflict: changed during write.');
@@ -92,7 +112,7 @@ describe('wikiship through a real MCP SDK client', () => {
   it('lists live tools, reads the current selection, and journals a section edit', async () => {
     const { client, context, journal, store, files } = await fixture();
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(12);
+    expect(list.tools).toHaveLength(17);
     const replacement = list.tools.find(tool => tool.name === 'wikiship_replace_range')!;
     expect(replacement.inputSchema.required).toContain('expectedHash');
     expect(replacement.annotations?.destructiveHint).toBe(true);
@@ -167,6 +187,29 @@ describe('wikiship through a real MCP SDK client', () => {
     expect(files.values.get('folder/renamed.md')!.data).toBe('New human content.');
   });
 
+  it('lists folders and journals empty creation, moves, and staged recursive deletion', async () => {
+    const { client, files, journal } = await fixture();
+    const created = data(await client.callTool({ name: 'wikiship_create_folder', arguments: { path: 'empty' } }));
+    expect(created.kind).toBe('create-folder');
+    expect(files.folders.has('empty')).toBe(true);
+    const emptyState = data(await client.callTool({ name: 'wikiship_get_folder_state', arguments: { path: 'empty' } }));
+    expect(emptyState.entries).toEqual([]);
+
+    files.folders.set('notes', folderSnapshot([{ path: 'nested', kind: 'folder' }, { path: 'nested/a.md', kind: 'file', hash: hash('note'), size: 4 }]));
+    const state = data(await client.callTool({ name: 'wikiship_get_folder_state', arguments: { path: 'notes' } }));
+    expect(state.fileCount).toBe(1);
+    const moved = data(await client.callTool({ name: 'wikiship_move_folder', arguments: { path: 'notes', target: 'archive', expectedHash: state.folderHash } }));
+    expect(moved.kind).toBe('move-folder');
+    expect(files.folders.has('archive')).toBe(true);
+    const archive = data(await client.callTool({ name: 'wikiship_get_folder_state', arguments: { path: 'archive' } }));
+    const deletion = data(await client.callTool({ name: 'wikiship_delete_folder', arguments: { path: 'archive', expectedHash: archive.folderHash } }));
+    expect(deletion.status).toBe('pending-delete');
+    expect(files.folders.has('archive')).toBe(true);
+    expect(journal.state.operations.map(op => op.kind)).toContain('delete-folder');
+    await journal.completeAll();
+    expect(files.folders.has('archive')).toBe(false);
+  });
+
   it.each(['wikiship_replace_selection', 'wikiship_insert_at_cursor'])('rechecks the unchanged-text editor target after slow journal persistence for %s', async name => {
     const { client, context, journal, store, files } = await fixture();
     const original = files.values.get('A.md')!.data;
@@ -186,9 +229,8 @@ describe('wikiship through a real MCP SDK client', () => {
     expect(response.isError).toBe(true);
     expect(JSON.stringify(response.content)).toContain('selection, cursor, or content changed');
     expect(files.values.get('A.md')!.data).toBe(original);
-    expect(journal.state.operations).toHaveLength(1);
-    expect(journal.state.operations[0]!.status).toBe('failed');
-    expect(Object.keys(store.saved!.operations[0]!)).not.toContain('guard');
+    expect(journal.state.operations).toEqual([]);
+    expect(store.saved!.operations).toEqual([]);
   });
 
   it('rejects a changed active section target after intent persistence', async () => {
@@ -201,7 +243,7 @@ describe('wikiship through a real MCP SDK client', () => {
     } });
     expect(response.isError).toBe(true);
     expect(files.values.get('B.md')!.data).toBe(original);
-    expect(journal.state.operations[0]!.status).toBe('failed');
+    expect(journal.state.operations).toEqual([]);
   });
 });
 
@@ -223,7 +265,7 @@ describe('tools-only stdio bridge policy', () => {
       });
     }
     const { createBridge, ALLOWED_TOOLS } = await bridgeModule();
-    expect(ALLOWED_TOOLS).toHaveLength(19);
+    expect(ALLOWED_TOOLS).toHaveLength(24);
     const readTools = ALLOWED_TOOLS.filter(name => !name.startsWith('wikiship_'));
     for (const name of readTools) host.registerTool(name, { inputSchema: {} }, async () => ({ content: [{ type: 'text', text: JSON.stringify({ read: name }) }] }));
     const bridge = createBridge(upstream), client = new Client({ name: 'external-agent', version: '1' });

@@ -1,6 +1,7 @@
-import { emptyState, id, isTextBoundary, MAX_FILE_BYTES, MutationPreconditionError, operationSchema, stateSchema, textOf, textSnapshot, SerialQueue, type Operation, type State, type StateStore, type WorkspaceFiles } from '../model';
+import { emptyState, folderSnapshot, id, isTextBoundary, MAX_FILE_BYTES, MutationPreconditionError, operationSchema, stateSchema, textOf, textSnapshot, SerialQueue, type Operation, type State, type StateStore, type WorkspaceFiles } from '../model';
 
 type FilePhase = 'before' | 'after' | 'unknown';
+type FileMutationKind = 'edit' | 'create' | 'delete' | 'move';
 
 export class Journal {
   private current = emptyState();
@@ -56,15 +57,25 @@ export class Journal {
     this.assertStorage();
     if (this.current.operations.some(o => ['prepared', 'reverting', 'uncertain', 'committing-delete'].includes(o.status))) throw new Error("An operation needs recovery. Inspect machine minds' changes and run Recover interrupted operations before further mutations.");
   }
-  async mutate(input: { kind: Operation['kind']; path: string; target?: string; expectedHash?: string; content?: string; from?: number; to?: number; agent?: string; session?: string }, guard?: () => Promise<void> | void) {
+  private readOperationPath(op: Operation, path: string) {
+    return op.kind.endsWith('-folder') ? this.files.readFolder(path) : this.files.read(path);
+  }
+  private pathHasPendingDeletion(path: string, folderOperation = false) {
+    return this.current.operations.some(op => {
+      if (!['delete', 'delete-folder'].includes(op.kind) || !['pending-delete', 'committing-delete'].includes(op.status)) return false;
+      return path === op.path || (op.kind === 'delete-folder' &&
+        path.startsWith(`${op.path}/`)) || (folderOperation && op.path.startsWith(`${path}/`));
+    });
+  }
+  async mutate(input: { kind: FileMutationKind; path: string; target?: string; expectedHash?: string; content?: string; from?: number; to?: number; agent?: string; session?: string }, guard?: () => Promise<void> | void) {
     return this.run(async () => {
       this.assertSettled();
       // Editor-target preconditions are ephemeral. Recheck after waiting for the
       // queue, and after persisting intent; never serialize a callback or retarget.
       await guard?.();
       if (input.content !== undefined && Buffer.byteLength(input.content) > MAX_FILE_BYTES) throw new Error('Mutation content exceeds the 5 MiB file limit.');
-      if (this.current.operations.some(op => op.kind === 'delete' && op.path === input.path && ['pending-delete', 'committing-delete'].includes(op.status))) {
-        throw new Error('This file has a deletion awaiting review. Undo or confirm that deletion before changing the file again.');
+      if (this.pathHasPendingDeletion(input.path) || (input.target && this.pathHasPendingDeletion(input.target))) {
+        throw new Error('This path is inside a deletion awaiting review. Undo or confirm that deletion before changing it again.');
       }
       const before = await this.files.read(input.path);
       if (input.kind === 'create') {
@@ -114,10 +125,47 @@ export class Journal {
       return structuredClone(op);
     });
   }
+  async mutateFolder(input: { kind: 'create-folder' | 'delete-folder' | 'move-folder'; path: string; target?: string; expectedHash?: string; agent?: string; session?: string }) {
+    return this.run(async () => {
+      this.assertSettled();
+      if (this.pathHasPendingDeletion(input.path, true) || (input.target && this.pathHasPendingDeletion(input.target, true))) {
+        throw new Error('This path is inside a deletion awaiting review. Undo or confirm that deletion before changing it again.');
+      }
+      const before = await this.files.readFolder(input.path);
+      if (input.kind === 'create-folder') {
+        if (before !== null) throw new Error('Conflict: folder already exists.');
+      } else if (!before || before.hash !== input.expectedHash) throw new Error('Conflict: folder changed or is missing. Read its current state first.');
+      if (input.kind === 'move-folder') {
+        if (!input.target || input.target === input.path || await this.files.readFolder(input.target) !== null) {
+          throw new Error('Conflict: move destination must be a different, absent folder.');
+        }
+      }
+      const after = input.kind === 'delete-folder' ? null : before ?? folderSnapshot([]);
+      const op = operationSchema.parse({ id: id(), timestamp: new Date().toISOString(), kind: input.kind, path: input.path,
+        target: input.target, before, after, status: input.kind === 'delete-folder' ? 'pending-delete' : 'prepared',
+        recoveryDirection: 'forward', agent: input.agent, session: input.session });
+      await this.updateOperation(op);
+      if (input.kind === 'delete-folder') return structuredClone(op);
+      try { await this.files.apply(op, false); }
+      catch (error) {
+        const phase = error instanceof MutationPreconditionError ? 'before' : await this.classify(op);
+        if (phase === 'before') {
+          await this.removeOperations(new Set([op.id]));
+          throw new Error(`Folder operation failed (not applied); operation ${op.id}: ${String(error)}`);
+        }
+        op.error = String(error); op.status = this.outcome(phase, 'forward'); await this.updateOperation(op);
+        throw new Error(`Folder operation failed (${op.status}); operation ${op.id}: ${op.error}`);
+      }
+      op.status = 'applied';
+      try { await this.updateOperation(op); }
+      catch { throw new Error(`Folder changed, but journal finalization failed. Operation ${op.id} needs recovery before continuing.`); }
+      return structuredClone(op);
+    });
+  }
   private async classify(op: Operation): Promise<FilePhase> {
-    const source = await this.files.read(op.path), target = op.target ? await this.files.read(op.target) : null;
+    const source = await this.readOperationPath(op, op.path), target = op.target ? await this.readOperationPath(op, op.target) : null;
     const equals = (a: typeof source, b: typeof source) => a?.hash === b?.hash;
-    if (op.kind === 'move') {
+    if (op.kind === 'move' || op.kind === 'move-folder') {
       if (source === null && equals(target, op.after)) return 'after';
       if (equals(source, op.before) && target === null) return 'before';
     } else {
@@ -134,7 +182,7 @@ export class Journal {
       if (!['prepared', 'uncertain', 'reverting', 'committing-delete'].includes(original.status)) continue;
       const op = structuredClone(original);
       if (original.status === 'committing-delete') {
-        const current = await this.files.read(op.path);
+        const current = await this.readOperationPath(op, op.path);
         if (current === null || current.hash === op.before?.hash) {
           // A crash may occur just after trashing but before journal cleanup. Keep
           // the confirmation visible; the next confirmation safely finishes it.
@@ -153,7 +201,7 @@ export class Journal {
       }
       op.status = direction ? this.outcome(phase, direction) : 'uncertain';
       op.recoveryDirection = direction;
-      op.error = op.status === 'uncertain' ? 'File state or recovery direction is uncertain. Restore a recorded state and recover again; no file was overwritten.' : undefined;
+        op.error = op.status === 'uncertain' ? 'File or folder state or recovery direction is uncertain. Restore a recorded state and recover again; no file was overwritten.' : undefined;
       await this.updateOperation(op);
     }
   }
@@ -223,18 +271,21 @@ export class Journal {
     this.assertSettled();
     const selected = this.state.operations.filter(predicate);
     for (const original of selected) {
-      if (original.kind !== 'delete' || original.status !== 'pending-delete') continue;
+      if (!['delete', 'delete-folder'].includes(original.kind) || original.status !== 'pending-delete') continue;
       const op = structuredClone(original);
-      const current = await this.files.read(op.path);
+      const current = await this.readOperationPath(op, op.path);
       // Missing means the file has already been moved to trash (for example, a
       // restart after the trash operation), or the requested deletion happened
       // outside wikiship. Either way, there is no vault file left to remove.
       if (!current) continue;
       if (current.hash !== op.before?.hash) throw new Error(`Conflict: ${op.path} changed after the deletion was staged. Nothing was cleared.`);
       op.status = 'committing-delete'; await this.updateOperation(op);
-      try { await this.files.trash(op.path, op.before!); }
+      try {
+        if (op.kind === 'delete-folder') await this.files.trashFolder(op.path, op.before!);
+        else await this.files.trash(op.path, op.before!);
+      }
       catch (error) {
-        const latest = await this.files.read(op.path).catch(() => op.before);
+        const latest = await this.readOperationPath(op, op.path).catch(() => op.before);
         op.status = latest === null ? 'pending-delete' : latest?.hash === op.before?.hash ? 'pending-delete' : 'uncertain';
         op.error = String(error); await this.updateOperation(op);
         throw new Error(`Could not move ${op.path} to trash. Its review data is still available: ${String(error)}`);

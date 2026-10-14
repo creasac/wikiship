@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { LocalRestApiPublicApi, McpToolDefinition, McpToolResult } from 'obsidian-local-rest-api';
 import type { Journal } from '../provenance/journal';
-import type { Operation } from '../model';
+import { folderEntries, type Operation } from '../model';
 
 export interface EditorTarget { path: string; from: number; to: number; fileHash: string; }
 export interface wikishipContext {
@@ -13,7 +13,9 @@ export interface wikishipContext {
 }
 
 const path = z.string().min(1).max(4096).describe('Vault-relative file path with forward slashes.');
+const folderPath = z.string().min(1).max(4096).describe('Vault-relative folder path with forward slashes, without a trailing slash.');
 const expectedHash = z.string().regex(/^[a-f0-9]{64}$/).describe('SHA-256 of the entire current file, obtained from wikiship.');
+const expectedFolderHash = z.string().regex(/^[a-f0-9]{64}$/).describe('Hash of the current folder manifest, obtained from wikiship_get_folder_state.');
 const offset = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const content = z.string().max(2_000_000).describe('Literal replacement text.');
 const identity = {
@@ -114,6 +116,32 @@ export function createToolDefinitions(context: wikishipContext, journal: Journal
     }, args => {
       const slash = args.path.lastIndexOf('/');
       return mutate({ ...args, kind: 'move', target: args.path.slice(0, slash + 1) + args.name });
+    }, true, true),
+    tool('wikiship_get_folder_state', 'Read a folder manifest and hash for safe folder moves or staged deletion. Includes empty folders and file hashes.', {
+      path: folderPath,
+    }, async args => {
+      const state = await journal.files.readFolder(args.path);
+      if (!state) return { path: args.path, exists: false };
+      const entries = folderEntries(state);
+      return { path: args.path, exists: true, folderHash: state.hash, entries,
+        fileCount: entries.filter(entry => entry.kind === 'file').length,
+        folderCount: entries.filter(entry => entry.kind === 'folder').length };
+    }),
+    tool('wikiship_create_folder', 'Create an empty folder at an absent vault-relative path. The parent folder must already exist.', {
+      path: folderPath, ...identity,
+    }, args => journal.mutateFolder({ ...args, kind: 'create-folder' }).then(operationSummary), true),
+    tool('wikiship_delete_folder', 'Stage a recursive folder deletion after reading its folder hash. The folder stays in the vault until approval, then moves to trash.', {
+      path: folderPath, expectedHash: expectedFolderHash, ...identity,
+    }, args => journal.mutateFolder({ ...args, kind: 'delete-folder' }).then(operationSummary), true, true),
+    tool('wikiship_move_folder', 'Move a folder to an absent vault-relative path. Require its current folder hash. Does not update links in other notes.', {
+      path: folderPath, target: folderPath, expectedHash: expectedFolderHash, ...identity,
+    }, args => journal.mutateFolder({ ...args, kind: 'move-folder' }).then(operationSummary), true, true),
+    tool('wikiship_rename_folder', 'Rename a folder within its current parent. Require its current folder hash. Does not update links in other notes.', {
+      path: folderPath, name: z.string().min(1).max(255).refine(name => !/[\\/]/.test(name) && name !== '.' && name !== '..', 'Use a folder name without directories.'),
+      expectedHash: expectedFolderHash, ...identity,
+    }, args => {
+      const slash = args.path.lastIndexOf('/');
+      return journal.mutateFolder({ ...args, kind: 'move-folder', target: args.path.slice(0, slash + 1) + args.name }).then(operationSummary);
     }, true, true),
     tool('wikiship_get_changes', 'Read a bounded page of pending change summaries, newest first. File contents and human approval/undo actions are not exposed.', {
       path: path.optional(), offset: offset.default(0), limit: z.number().int().min(1).max(100).default(20),

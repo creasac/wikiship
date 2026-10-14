@@ -41,7 +41,6 @@ The wikiship icon, right-panel tab, and clickable status bar open **machine mind
 
 ## What v1 guarantees
 
-- Only calls through wikiship's mutation interface receive machine-mind attribution. Human typing, sync events, and external filesystem writes never become machine minds' changes just because a watcher observed them.
 - Pending changes keep before/after content and hashes locally so you can inspect or undo them. Approval clears that review data. Deletion is staged; approval moves the file to trash.
 - Live reads validate the editor, selection, and cursor across asynchronous reads. Section edits require a unique full heading path; changed targets are refused.
 - File edits use Obsidian's atomic `process` API and recheck disk content and open editor buffers. Reverting is deliberately conservative: the entire file must match the recorded result.

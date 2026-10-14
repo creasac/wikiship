@@ -17,7 +17,9 @@ export const ALLOWED_TOOLS = Object.freeze([
   'wikiship_get_file_state',
   'wikiship_replace_range', 'wikiship_replace_selection', 'wikiship_insert_at_cursor',
   'wikiship_patch_section', 'wikiship_create_file', 'wikiship_delete_file',
-  'wikiship_move_file', 'wikiship_rename_file', 'wikiship_get_changes',
+  'wikiship_move_file', 'wikiship_rename_file', 'wikiship_get_folder_state',
+  'wikiship_create_folder', 'wikiship_delete_folder', 'wikiship_move_folder',
+  'wikiship_rename_folder', 'wikiship_get_changes',
 ]);
 const allowed = new Set(ALLOWED_TOOLS);
 const failure = message => ({ isError: true, content: [{ type: 'text', text: message }] });

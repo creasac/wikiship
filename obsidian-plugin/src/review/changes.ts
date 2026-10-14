@@ -4,6 +4,7 @@ export interface ChangeRegion { from: number; beforeTo: number; afterTo: number;
 export interface ChangeLocation { operationId: string; from: number; to: number; kind: ChangeRegion['kind']; }
 
 export function changeRegion(operation: Operation): ChangeRegion | null {
+  if (operation.kind.endsWith('-folder')) return null;
   if (!operation.after || operation.after.encoding !== 'utf8' || operation.before?.encoding === 'base64') return null;
   const before = operation.before?.data ?? '', after = operation.after.data;
   if (before === after) return null;
@@ -20,7 +21,7 @@ export function locationsForFile(operations: Operation[], path: string, text: st
   const following: ChangeRegion[] = [], located: ChangeLocation[] = [];
   for (let i = operations.length - 1; i >= 0; i--) {
     const op = operations[i]!;
-    if (op.status !== 'applied') continue;
+    if (op.status !== 'applied' || op.kind.endsWith('-folder')) continue;
     const afterPath = op.kind === 'move' ? op.target : op.path;
     if (afterPath !== currentPath || op.after?.hash !== currentHash) continue;
     if (op.kind === 'move') {
@@ -52,6 +53,9 @@ export function locationsForFile(operations: Operation[], path: string, text: st
 }
 
 export function operationLabel(operation: Operation): string {
+  if (operation.kind === 'create-folder') return 'Created folder';
+  if (operation.kind === 'delete-folder') return 'Deleted folder';
+  if (operation.kind === 'move-folder') return `Moved folder to ${operation.target}`;
   if (operation.kind === 'move') return `Moved to ${operation.target}`;
   if (operation.kind === 'create') return 'Created file';
   if (operation.kind === 'delete') return 'Deleted file';

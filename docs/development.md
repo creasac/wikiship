@@ -51,7 +51,7 @@ The fixture uses local HTTP with a randomly generated API key solely inside the 
 
 ### Native acceptance run
 
-The harness checks live selection and section metadata, exact editor updates, the auto-opened change panel and diff, conflict-safe undo, staged deletion and trash, paged review, journal clearing, host reload, the 19-tool bridge, and the six-command palette. Run it in a disposable profile before claiming native verification for a revision.
+The harness checks live selection and section metadata, exact editor updates, the auto-opened change panel and diff, conflict-safe undo, staged file and folder deletion, folder creation and moves, paged review, journal clearing, host reload, the 24-tool bridge, and the six-command palette. Run it in a disposable profile before claiming native verification for a revision.
 
 The harness writes `artifacts/obsidian-acceptance.json` and `artifacts/obsidian-acceptance.png`. Generated local artifacts are not committed.
 

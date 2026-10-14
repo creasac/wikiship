@@ -106,10 +106,20 @@ A section path includes every ancestor, for example `["Architecture", "Storage"]
 
 `wikiship_get_changes({path?, offset?, limit?})` returns newest-first summaries, `total`, and `nextOffset`. The default limit is 20 and the maximum is 100. Supplying `path` matches either side of a move. Summaries include hashes and whether a deletion awaits human approval; they do not expose file content or approval/undo actions.
 
+## Folder operations
+
+`wikiship_get_folder_state({path})` returns a folder hash and a sorted manifest of nested folders and files. The manifest includes file hashes and sizes, and it includes empty subfolders. Use `folderHash` with a folder move or staged folder deletion.
+
+`wikiship_create_folder({path, session?})` creates an empty folder. Its parent must already exist. `wikiship_move_folder({path, target, expectedHash, session?})` moves a folder and its contents. `wikiship_rename_folder({path, name, expectedHash, session?})` renames a folder in place. Moves and renames do not update links in other notes.
+
+`wikiship_delete_folder({path, expectedHash, session?})` stages a recursive deletion. The folder remains in the vault until a person approves its session. Approval moves the folder tree to Obsidian's trash. Wikiship checks the folder manifest again before approval and refuses if a file or subfolder changed. Undoing an unapproved deletion clears the review record and leaves the folder in place.
+
+Folder operations appear as expandable rows in the review pane. The row shows the folder path and counts. Expand it to inspect child paths or open a file before approval. Empty folders appear with an empty-folder label.
+
 Review, undo, approval, and recovery stay in the human Obsidian interface. An agent cannot approve or clear its own changes through the bridge. Undo requires the current file state to match the recorded result and refuses newer edits. Approval removes the journal content; wikiship cannot restore cleared changes.
 
 ## Verified protocol behavior
 
-`npm test` includes real MCP SDK clients over paired in-memory transports. Tests exercise live selection reads, the 12 registered definitions and emitted schemas, section edits, journal snapshots, file operations, safe human recovery, stale hashes, selection drift, and invalid arguments. Bridge tests reject unapproved host and lookalike tools. Journal tests cover persistence across operations and reloads.
+`npm test` includes real MCP SDK clients over paired in-memory transports. Tests exercise live selection reads, the 17 registered definitions and emitted schemas, section edits, journal snapshots, file and folder operations, safe human recovery, stale hashes, selection drift, and invalid arguments. Bridge tests reject unapproved host and lookalike tools. Journal tests cover persistence across operations and reloads.
 
-The native acceptance harness targets Local REST API 5.3.0 inside Obsidian 1.13.7. Its current assertions cover 12 registrations, live context, attributed edits, review/undo, staged deletion, clearing, persistence, and a 19-tool stdio bridge. See [development and verification](development.md) for how to run it.
+The native acceptance harness targets Local REST API 5.3.0 inside Obsidian 1.13.7. Its current assertions cover 17 registrations, live context, edits, file and folder review/undo, staged deletion, clearing, persistence, and a 24-tool stdio bridge. See [development and verification](development.md) for how to run it.

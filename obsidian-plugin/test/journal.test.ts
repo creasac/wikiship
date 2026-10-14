@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { bytes, emptyState, hash, MAX_FILE_BYTES, MutationPreconditionError, snapshot, stateSchema, textSnapshot, type Operation, type Snapshot, type State, type StateStore, type WorkspaceFiles } from '../src/model';
+import { bytes, emptyState, folderSnapshot, hash, MAX_FILE_BYTES, MutationPreconditionError, snapshot, stateSchema, textSnapshot, type Operation, type Snapshot, type State, type StateStore, type WorkspaceFiles } from '../src/model';
 import { Journal } from '../src/provenance/journal';
 
 class MemoryStore implements StateStore {
@@ -19,18 +19,38 @@ class MemoryStore implements StateStore {
 }
 class MemoryFiles implements WorkspaceFiles {
   content = new Map<string, Snapshot>();
+  folders = new Map<string, Snapshot>();
   constructor(private store: MemoryStore) {}
   put(path: string, content: string | Uint8Array) { this.content.set(path, typeof content === 'string' ? textSnapshot(content) : snapshot(content)); }
   text(path: string) { return this.content.get(path)?.data; }
   async read(path: string) { return structuredClone(this.content.get(path) ?? null); }
+  async readFolder(path: string) { return structuredClone(this.folders.get(path) ?? null); }
   async trash(path: string, expected: Snapshot) {
     if ((await this.read(path))?.hash !== expected.hash) throw new MutationPreconditionError('Conflict: changed before trash.');
     this.content.delete(path);
+  }
+  async trashFolder(path: string, expected: Snapshot) {
+    if ((await this.readFolder(path))?.hash !== expected.hash) throw new MutationPreconditionError('Conflict: folder changed before trash.');
+    this.folders.delete(path);
   }
   async apply(op: Operation, reverse: boolean) {
     // Exercise the journal/adapter contract: durable intent and a second compare
     // immediately before mutation, including the destination of a move.
     expect(this.store.saved?.operations.find(item => item.id === op.id)?.status).toBe(reverse ? 'reverting' : 'prepared');
+    if (op.kind.endsWith('-folder')) {
+      const source = reverse && op.kind === 'move-folder' ? op.target! : op.path;
+      const target = reverse && op.kind === 'move-folder' ? op.path : op.target;
+      const expected = reverse ? op.after : op.before;
+      if ((await this.readFolder(source))?.hash !== expected?.hash) throw new MutationPreconditionError('Conflict: folder changed at write boundary.');
+      if (op.kind === 'move-folder') {
+        if (await this.readFolder(target!) !== null) throw new MutationPreconditionError('Conflict: destination folder exists.');
+        this.folders.set(target!, structuredClone(expected!)); this.folders.delete(source);
+      } else if (op.kind === 'create-folder') {
+        const next = reverse ? op.before : op.after;
+        if (next) this.folders.set(source, structuredClone(next)); else this.folders.delete(source);
+      }
+      return;
+    }
     const source = reverse && op.kind === 'move' ? op.target! : op.path;
     const target = reverse && op.kind === 'move' ? op.path : op.target;
     const expected = reverse ? op.after : op.before;
@@ -54,6 +74,29 @@ async function setup(initial = 'original') {
 }
 
 describe('AI provenance and safe inverse operations', () => {
+  it('creates, moves, stages deletion, and trashes a folder as separate review operations', async () => {
+    const store = new MemoryStore(), files = new MemoryFiles(store), journal = new Journal(store, files);
+    await journal.load();
+    const created = await journal.mutateFolder({ kind: 'create-folder', path: 'empty', session: 'folder create' });
+    expect(created.status).toBe('applied');
+    expect(files.folders.has('empty')).toBe(true);
+    await journal.undo(created.id);
+    expect(files.folders.has('empty')).toBe(false);
+
+    files.folders.set('parent', folderSnapshot([{ path: 'child', kind: 'folder' }, { path: 'child/note.md', kind: 'file', hash: hash('note'), size: 4 }]));
+    const before = files.folders.get('parent')!;
+    const moved = await journal.mutateFolder({ kind: 'move-folder', path: 'parent', target: 'renamed', expectedHash: before.hash, session: 'folder move' });
+    expect(files.folders.get('renamed')?.hash).toBe(before.hash);
+    await journal.undo(moved.id);
+    expect(files.folders.get('parent')?.hash).toBe(before.hash);
+
+    const deletion = await journal.mutateFolder({ kind: 'delete-folder', path: 'parent', expectedHash: before.hash, session: 'folder delete' });
+    expect(deletion.status).toBe('pending-delete');
+    expect(files.folders.has('parent')).toBe(true);
+    await journal.completeSession('folder delete');
+    expect(files.folders.has('parent')).toBe(false);
+  });
+
   it('records a pending before/after change and removes it after undo', async () => {
     const { journal, files, store, edit } = await setup();
     const op = await edit();
@@ -115,7 +158,7 @@ describe('AI provenance and safe inverse operations', () => {
     vi.spyOn(files, 'apply').mockImplementationOnce(async (...args) => { files.put('note.md', 'manual race'); await apply(...args); });
     await expect(edit()).rejects.toThrow('failed');
     expect(files.text('note.md')).toBe('manual race');
-    expect(journal.state.operations[0]).toMatchObject({ before: { data: 'original' }, after: { data: 'AI text' }, status: 'failed' });
+    expect(journal.state.operations).toEqual([]);
     await journal.mutate({ kind: 'edit', path: 'note.md', expectedHash: hash('manual race'), from: 0, to: 11, content: 'fresh authorized edit' });
     expect(files.text('note.md')).toBe('fresh authorized edit');
   });
@@ -124,7 +167,7 @@ describe('AI provenance and safe inverse operations', () => {
     vi.spyOn(files, 'apply').mockImplementationOnce(async (...args) => { files.put('note.md', 'AI text'); await apply(...args); });
     await expect(edit()).rejects.toThrow('failed');
     expect(files.text('note.md')).toBe('AI text');
-    expect(journal.state.operations[0]?.status).toBe('failed');
+    expect(journal.state.operations).toEqual([]);
   });
   it('marks a rejected editor guard failed even if the human independently made the requested change', async () => {
     const { journal, files, store } = await setup(), save = store.save.bind(store);
@@ -134,7 +177,7 @@ describe('AI provenance and safe inverse operations', () => {
     const apply = vi.spyOn(files, 'apply');
     await expect(journal.mutate({ kind: 'edit', path: 'note.md', expectedHash: hash('original'), from: 0, to: 8, content: 'AI text' }, guard)).rejects.toThrow('cancelled before writing');
     expect(apply).not.toHaveBeenCalled();
-    expect(journal.state.operations[0]?.status).toBe('failed');
+    expect(journal.state.operations).toEqual([]);
     expect(files.text('note.md')).toBe('AI text');
   });
   it('undoes creation and stages binary deletion until confirmation moves it to trash', async () => {
@@ -272,7 +315,7 @@ describe('write-ahead persistence and interruption recovery', () => {
     expect(files.text('note.md')).toBe('original');
     const apply = vi.spyOn(files, 'apply'), restarted = new Journal(store, files);
     await restarted.load();
-    expect(restarted.state.operations[0]?.status).toBe('reverted');
+    expect(restarted.state.operations).toEqual([]);
     expect(apply).not.toHaveBeenCalled();
   });
   it('preserves reverse direction through uncertain recovery and subsequent restarts', async () => {
@@ -285,7 +328,7 @@ describe('write-ahead persistence and interruption recovery', () => {
     expect(files.text('note.md')).toBe('partial inverse');
     files.put('note.md', 'original');
     await restarted.recover();
-    expect(restarted.state.operations[0]?.status).toBe('reverted');
+    expect(restarted.state.operations).toEqual([]);
   });
   it('does not guess the direction of a legacy uncertain record', async () => {
     const { journal, files, store, edit } = await setup(); await edit();
