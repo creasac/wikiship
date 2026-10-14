@@ -58,7 +58,7 @@ export default class WikiShip extends Plugin {
           event.preventDefault(); this.run(() => this.openView(CHANGES_VIEW_TYPE));
         }
       });
-      this.connection.setAttribute('aria-label', "Open machine minds' changes");
+      this.connection.setAttribute('aria-label', 'Open wikiship');
       const reviewable = () => this.journal.state.operations.some(op => !['prepared', 'committing-delete'].includes(op.status));
       let hasReviewableChanges = reviewable();
       if (hasReviewableChanges) this.run(() => this.openView(CHANGES_VIEW_TYPE));
@@ -71,7 +71,7 @@ export default class WikiShip extends Plugin {
         hasReviewableChanges = hasReviewable;
         this.connection?.setText(count ? `wikiship · ${count} change${count === 1 ? '' : 's'} · review` : this.api ? 'wikiship · MCP ready' : 'wikiship · enable Local REST API');
       }));
-      this.addRibbonIcon(WIKISHIP_ICON_ID, "wikiship: machine minds' changes", () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
+      this.addRibbonIcon(WIKISHIP_ICON_ID, 'wikiship', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
       this.addCommands();
       this.addSettingTab(new WikiShipSettings(this.app, this));
       this.registerEvent(this.app.workspace.on('obsidian-local-rest-api:loaded', () => this.connectMcp()));

@@ -12,11 +12,12 @@
 .wikiship-session-group { border-top: 1px solid var(--background-modifier-border); padding: var(--size-4-3) 0; }
 .wikiship-session-group .wikiship-file-group { padding: var(--size-4-2) 0; border-top: 1px solid var(--background-modifier-border); }
 .wikiship-batch-meta { margin-top: calc(-1 * var(--size-4-2)); }
-.wikiship-batch-summary { margin: var(--size-4-2) 0; font-size: var(--font-ui-small); }
 .wikiship-session-actions { display: flex; justify-content: space-between; align-items: center; gap: var(--size-4-2); margin: var(--size-4-2) 0; }
 .wikiship-session-actions button { font-size: var(--font-ui-small); }
 .wikiship-file-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--size-4-2); padding: var(--size-4-2); }
-.wikiship-file-link { min-width: 0; flex: 1 1 12em; }
+.wikiship-file-link { display: flex; min-width: 0; flex: 1 1 12em; justify-content: flex-start; text-align: left; }
+.wikiship-text-button.wikiship-file-added { color: var(--text-success); }
+.wikiship-text-button.wikiship-file-deleted { color: var(--text-error); }
 .wikiship-file-meta { color: var(--text-muted); font-size: var(--font-ui-small); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .wikiship-file-warning { flex: 0 0 100%; margin: 0; }
 .wikiship-review-file-title { font-size: var(--font-ui-large); font-weight: var(--font-semibold); }

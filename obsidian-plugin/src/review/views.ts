@@ -53,7 +53,7 @@ interface FileReviewGroup {
   path: string;
   first: Operation;
   last: Operation;
-  category: 'Added' | 'Updated' | 'Deleted' | 'Moved' | 'Needs review';
+  category: 'Added' | 'Modified' | 'Deleted' | 'Moved' | 'Needs review';
   removed: number;
   added: number;
   lineTotalsAvailable: boolean;
@@ -100,7 +100,7 @@ function reviewBatches(operations: Operation[]): ReviewBatch[] {
       } else {
         const created: FileReviewGroup = {
           operations: [op], path: op.kind === 'move' ? `${op.path} → ${op.target}` : op.path,
-          first: op, last: op, category: 'Updated', removed: 0, added: 0, lineTotalsAvailable: true, conflict: false,
+          first: op, last: op, category: 'Modified', removed: 0, added: 0, lineTotalsAvailable: true, conflict: false,
         };
         groups.push(created); owner.set(op.kind === 'move' && op.target ? op.target : op.path, created);
       }
@@ -114,7 +114,7 @@ function reviewBatches(operations: Operation[]): ReviewBatch[] {
       else if (after === null) file.category = 'Deleted';
       else if (before === null) file.category = 'Added';
       else if (chain.some(op => op.kind === 'move')) file.category = 'Moved';
-      else file.category = 'Updated';
+      else file.category = 'Modified';
       if (!file.conflict) {
         const totals = lineTotals(before, after);
         file.removed = totals.removed; file.added = totals.added; file.lineTotalsAvailable = totals.available;
@@ -129,18 +129,6 @@ function displayFilePath(operations: Operation[]) {
   const last = operations.at(-1)!;
   const finalPath = last.kind === 'move' ? last.target! : last.path;
   return firstPath === finalPath ? firstPath : `${firstPath} → ${finalPath}`;
-}
-
-function batchCounts(batch: ReviewBatch) {
-  const counts = { Added: 0, Updated: 0, Deleted: 0, Moved: 0, 'Needs review': 0 };
-  for (const file of batch.files) counts[file.category]++;
-  return counts;
-}
-
-function batchLabel(batch: ReviewBatch) {
-  const counts = batchCounts(batch);
-  return (Object.entries(counts) as [keyof typeof counts, number][]).filter(([, count]) => count)
-    .map(([label, count]) => `${count} ${label.toLowerCase()}`).join(' · ');
 }
 
 function lineCount(value: number, sign: '−' | '+') { return value ? `${sign} ${value}` : ''; }
@@ -172,7 +160,7 @@ export class ChangesView extends ItemView {
   async onClose() { this.stop?.(); }
   private render() {
     const root = this.contentEl; root.empty();
-    root.createEl('h4', { text: "machine minds' changes" });
+    root.createEl('h4', { text: 'wikiship' });
     const all = this.journal.state.operations;
     if (all.some(op => ['prepared', 'uncertain', 'reverting', 'committing-delete'].includes(op.status))) {
       root.createEl('p', { cls: 'wikiship-warning', text: 'An interrupted operation needs recovery before changes can be undone or cleared.' });
@@ -188,12 +176,6 @@ export class ChangesView extends ItemView {
       const title = session || 'Unlabelled session';
       section.createEl('h5', { text: title, cls: 'wikiship-path' });
       section.createEl('div', { cls: 'wikiship-muted wikiship-batch-meta', text: `${formatBatchTime(operations)} · ${formatAgents(operations)}` });
-      const linesAvailable = batch.files.every(file => file.lineTotalsAvailable);
-      const totals = batch.files.reduce((sum, file) => ({ removed: sum.removed + file.removed, added: sum.added + file.added }), { removed: 0, added: 0 });
-      const lineSummary = linesAvailable
-        ? [totals.removed ? `− ${totals.removed} removed` : '', totals.added ? `+ ${totals.added} added` : ''].filter(Boolean).join(' · ')
-        : 'line totals unavailable';
-      section.createEl('div', { cls: 'wikiship-batch-summary', text: `${batch.files.length} file${batch.files.length === 1 ? '' : 's'}${batchLabel(batch) ? ` · ${batchLabel(batch)}` : ''}${lineSummary ? ` · ${lineSummary}` : ''}` });
       const sessionActions = section.createDiv('wikiship-session-actions');
       action(sessionActions, 'Approve session', async () => {
         const deletes = operations.filter(op => op.kind === 'delete' && op.status === 'pending-delete').length;
@@ -206,11 +188,13 @@ export class ChangesView extends ItemView {
       for (const fileGroup of batch.files) {
         const file = section.createDiv('wikiship-file-group');
         const row = file.createDiv('wikiship-file-row');
-        action(row, fileGroup.path, () => inspectFile(this.app, this.journal, fileGroup), 'wikiship-text-button wikiship-file-link');
+        const filenameClass = fileGroup.category === 'Added' ? ' wikiship-file-added'
+          : fileGroup.category === 'Deleted' ? ' wikiship-file-deleted' : '';
+        action(row, fileGroup.path, () => inspectFile(this.app, this.journal, fileGroup), `wikiship-text-button wikiship-file-link${filenameClass}`);
         const counts = fileGroup.lineTotalsAvailable
           ? [lineCount(fileGroup.removed, '−'), lineCount(fileGroup.added, '+')].filter(Boolean).join(' ')
           : 'line totals unavailable';
-        row.createSpan({ cls: `wikiship-file-meta${fileGroup.conflict ? ' wikiship-warning' : ''}`, text: [fileGroup.category, counts].filter(Boolean).join(' · ') });
+        row.createSpan({ cls: `wikiship-file-meta${fileGroup.conflict ? ' wikiship-warning' : ''}`, text: counts });
         if (fileGroup.conflict) row.createEl('p', { cls: 'wikiship-warning wikiship-file-warning', text: 'Recorded steps do not form a verified sequence. Open review to inspect each step.' });
       }
     }
