@@ -21,6 +21,14 @@ export function locationsForFile(operations: Operation[], path: string, text: st
   const following: ChangeRegion[] = [], located: ChangeLocation[] = [];
   for (let i = operations.length - 1; i >= 0; i--) {
     const op = operations[i]!;
+    // A staged file deletion leaves the file intact until approval, so its
+    // current lines can still carry removal markers in the editor gutter.
+    if (op.kind === 'delete' && op.status === 'pending-delete') {
+      if (op.path === currentPath && op.before?.encoding === 'utf8' && op.before.hash === currentHash) {
+        located.push({ operationId: op.id, from: 0, to: text.length, kind: 'deleted' });
+      }
+      continue;
+    }
     if (op.status !== 'applied' || op.kind.endsWith('-folder')) continue;
     const afterPath = op.kind === 'move' ? op.target : op.path;
     if (afterPath !== currentPath || op.after?.hash !== currentHash) continue;

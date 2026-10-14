@@ -317,74 +317,106 @@ export class FileReviewModal extends Modal {
     const batch = batches.find(candidate => candidate.files.some(file => file.operations.some(op => op.id === this.operationId)));
     const group = batch?.files.find(file => file.operations.some(op => op.id === this.operationId));
     const root = this.contentEl; root.empty();
-    this.titleEl.setText('Review file');
+    this.titleEl.setText('Review changes');
     if (!batch || !group) { root.createEl('p', { text: 'This file is no longer in the review queue.' }); return; }
     const index = batch.files.indexOf(group);
     const title = root.createDiv({ cls: 'wikiship-path wikiship-review-file-title' });
     renderPath(title, group.path, group.movedFrom);
-    root.createEl('p', { cls: 'wikiship-muted', text: `${index + 1} of ${batch.files.length} files · ${group.category}` });
+    const counts = group.lineTotalsAvailable
+      ? [lineCount(group.removed, '−'), lineCount(group.added, '+')].filter(Boolean).join(' ')
+      : 'line totals unavailable';
     if (group.conflict) root.createEl('p', { cls: 'wikiship-warning', text: 'These recorded steps do not form one verified before-and-after chain. Review each step and the current file before approving or undoing.' });
     if (group.operations.some(op => op.kind === 'delete' && op.status === 'pending-delete')) {
       root.createEl('p', { cls: 'wikiship-delete-notice', text: 'The file stays in your vault until approval. Approval moves it to trash. Undo cancels the deletion.' });
     }
-    const actions = root.createDiv('wikiship-actions');
-    action(actions, 'Undo file', async () => { await undoFile(this.journal, group); new Notice('File changes undone and review data cleared.'); this.close(); }, 'mod-warning');
-    action(actions, 'Approve session', async () => {
-      const deletes = batch.operations.filter(op => ['delete', 'delete-folder'].includes(op.kind) && op.status === 'pending-delete').length;
-      const result = await this.journal.completeSession(batch.session);
-      new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} item(s) to trash` : ''}.`); this.close();
-    }, 'mod-cta');
-    action(actions, 'Next file', async () => { this.close(); await nextFile(this.app, this.journal, this.operationId); });
-    const latest = group.operations.at(-1)!;
-    const targetPath = latest.kind === 'move' ? latest.target! : latest.path;
-    if (this.app.vault.getFileByPath(targetPath)) action(actions, 'Open file', () => openChangeLocation(this.app, this.journal, latest));
+    const toolbar = root.createDiv({ cls: 'wikiship-review-toolbar' });
+    const toolbarStart = toolbar.createDiv({ cls: 'wikiship-review-toolbar-start' });
+    const changeControls = toolbar.createDiv({ cls: 'wikiship-review-toolbar-changes' });
+    const toolbarEnd = toolbar.createDiv({ cls: 'wikiship-review-toolbar-end' });
+    toolbarStart.createSpan({ cls: 'wikiship-muted', text: `File ${index + 1} of ${batch.files.length}` });
+    if (batch.files.length > 1) action(toolbarStart, 'Next file', async () => { this.close(); await nextFile(this.app, this.journal, this.operationId); });
+    if (counts) toolbarEnd.createSpan({ cls: 'wikiship-muted wikiship-review-line-counts', text: counts });
+    action(toolbarEnd, 'Undo file', async () => { await undoFile(this.journal, group); new Notice('File changes undone and review data cleared.'); this.close(); }, 'mod-warning');
 
     const before = group.first.before?.encoding === 'utf8' ? group.first.before.data : group.first.before ? null : '';
     const after = group.last.after?.encoding === 'utf8' ? group.last.after.data : group.last.after ? null : '';
+    let showRecoveryRecord = false;
     if (group.conflict) {
       root.createEl('h5', { text: 'Recorded steps' });
-      root.createEl('p', { cls: 'wikiship-muted', text: 'A combined diff is hidden because the saved steps are not continuous.' });
+      root.createEl('p', { cls: 'wikiship-muted', text: 'A combined diff is unavailable because the saved steps are not continuous. Recovery snapshots are available below.' });
+      showRecoveryRecord = true;
     } else if (before !== null && after !== null && before !== after && before.length + after.length <= 400_000) {
-      root.createEl('h5', { text: 'Net diff' });
       const diff = root.createEl('pre', { cls: 'wikiship-diff' });
       const parts = diffLines(before, after, { timeout: 1000 });
-      if (parts) for (const part of parts) {
-        const type = part.added ? 'added' : part.removed ? 'removed' : 'unchanged';
-        const lines = part.value.split('\n');
-        if (lines.at(-1) === '') lines.pop();
-        const visible = type === 'unchanged' && lines.length > 8 ? [...lines.slice(0, 3), `… ${lines.length - 6} unchanged lines …`, ...lines.slice(-3)] : lines;
-        for (const line of visible) diff.createSpan({ cls: `wikiship-diff-${type}`, text: `${part.added ? '+' : part.removed ? '−' : ' '} ${line}` });
-      } else root.createEl('p', { cls: 'wikiship-muted', text: 'Diff calculation reached its time limit. Use the recorded snapshots below.' });
+      if (parts) {
+        const changes: HTMLElement[][] = [];
+        let activeChange: HTMLElement[] | undefined;
+        for (const part of parts) {
+          const type = part.added ? 'added' : part.removed ? 'removed' : 'unchanged';
+          if (type === 'unchanged') activeChange = undefined;
+          else if (!activeChange) {
+            activeChange = [];
+            changes.push(activeChange);
+          }
+          const lines = part.value.split('\n');
+          if (lines.at(-1) === '') lines.pop();
+          for (const line of lines) {
+            const row = diff.createDiv({ cls: 'wikiship-diff-row' });
+            row.createSpan({ cls: 'wikiship-diff-selection-marker' });
+            row.createSpan({ cls: 'wikiship-diff-sign', text: part.added ? '+' : part.removed ? '−' : '' });
+            row.createSpan({ cls: `wikiship-diff-${type}`, text: line });
+            if (type !== 'unchanged') activeChange!.push(row);
+          }
+        }
+        if (changes.length) {
+          let currentChange = 0;
+          const navigation = changeControls.createDiv({ cls: 'wikiship-change-navigation' });
+          if (changes.length > 1) action(navigation, 'Previous', () => {
+            currentChange = (currentChange - 1 + changes.length) % changes.length;
+            showCurrentChange();
+          });
+          const position = navigation.createEl('span', { cls: 'wikiship-muted' });
+          if (changes.length > 1) action(navigation, 'Next', () => {
+            currentChange = (currentChange + 1) % changes.length;
+            showCurrentChange();
+          });
+          const showCurrentChange = () => {
+            position.setText(`Change ${currentChange + 1} of ${changes.length}`);
+            changes.forEach((rows, index) => rows.forEach((row, rowIndex) => {
+              row.querySelector('.wikiship-diff-selection-marker')?.setText(index === currentChange && rowIndex === 0 ? '›' : '');
+            }));
+            changes[currentChange]![0]!.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          };
+          showCurrentChange();
+        }
+      } else {
+        root.createEl('p', { cls: 'wikiship-muted', text: 'Diff calculation reached its time limit. Recovery snapshots are available below.' });
+        showRecoveryRecord = true;
+      }
     } else if (before !== null && after !== null && before !== after) {
-      root.createEl('p', { cls: 'wikiship-muted', text: 'This change is too large for an inline diff. Use the recorded snapshots below.' });
+      root.createEl('p', { cls: 'wikiship-muted', text: 'This change is too large for an inline diff. Recovery snapshots are available below.' });
+      showRecoveryRecord = true;
     } else if (group.last.kind === 'delete' && group.last.status === 'pending-delete') {
       root.createEl('p', { cls: 'wikiship-muted', text: 'This file will be removed from the vault when approved.' });
     } else if (group.first.before?.encoding === 'base64' || group.last.after?.encoding === 'base64') {
       root.createEl('p', { cls: 'wikiship-muted', text: 'Binary file. Contents are available in the recovery record.' });
+      showRecoveryRecord = true;
     } else if (group.operations.some(op => op.kind === 'move')) {
       root.createEl('p', { cls: 'wikiship-muted', text: 'File moved. Its contents are unchanged.' });
     }
 
-    const history = root.createEl('details', { cls: 'wikiship-history' });
-    history.createEl('summary', { text: `Operation history · ${group.operations.length}` });
-    for (const op of group.operations) {
-      const entry = history.createDiv('wikiship-history-entry');
-      entry.createDiv({ cls: 'wikiship-history-description', text: `${formatTimestamp(op.timestamp)} · ${operationLabel(op)} · ${op.status}` });
-      if (op.error) entry.createEl('p', { cls: 'wikiship-warning', text: op.error });
-      action(entry, 'Undo step', async () => { await this.journal.undo(op.id); new Notice('Change undone and review data cleared.'); }, 'wikiship-text-button wikiship-muted');
+    if (showRecoveryRecord) {
+      const recovery = root.createEl('details', { cls: 'wikiship-snapshots' });
+      recovery.createEl('summary', { text: `Recovery snapshots · ${group.operations.length} steps` });
+      for (const op of group.operations) {
+        const details = recovery.createEl('details', { cls: 'wikiship-recovery-operation' });
+        details.createEl('summary', { text: `${operationLabel(op)} · ${op.id}` });
+        if (op.error) details.createEl('p', { cls: 'wikiship-warning', text: op.error });
+        const columns = details.createDiv('wikiship-snapshot-columns');
+        snapshotPanel(columns, 'Before', op.before);
+        snapshotPanel(columns, op.kind === 'delete' && op.status === 'pending-delete' ? 'After approval' : 'After', op.after);
+      }
     }
-
-    const recovery = root.createEl('details', { cls: 'wikiship-snapshots' });
-    recovery.createEl('summary', { text: 'Recovery record' });
-    for (const op of group.operations) {
-      const details = recovery.createEl('details', { cls: 'wikiship-recovery-operation' });
-      details.createEl('summary', { text: `${operationLabel(op)} · ${op.id}` });
-      if (op.error) details.createEl('p', { cls: 'wikiship-warning', text: op.error });
-      const columns = details.createDiv('wikiship-snapshot-columns');
-      snapshotPanel(columns, 'Before', op.before);
-      snapshotPanel(columns, op.kind === 'delete' && op.status === 'pending-delete' ? 'After approval' : 'After', op.after);
-    }
-    root.createEl('p', { cls: 'wikiship-muted', text: 'Approval clears these review records. wikiship cannot restore them afterward.' });
   }
 }
 

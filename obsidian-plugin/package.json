@@ -1,6 +1,6 @@
 {
   "name": "wikiship-obsidian",
-  "version": "0.1.4",
+  "version": "0.1.8",
   "private": true,
   "type": "module",
   "scripts": {
