@@ -228,7 +228,7 @@ export class Journal {
       const current = await this.files.read(op.path);
       // Missing means the file has already been moved to trash (for example, a
       // restart after the trash operation), or the requested deletion happened
-      // outside WikiShip. Either way, there is no vault file left to remove.
+      // outside wikiship. Either way, there is no vault file left to remove.
       if (!current) continue;
       if (current.hash !== op.before?.hash) throw new Error(`Conflict: ${op.path} changed after the deletion was staged. Nothing was cleared.`);
       op.status = 'committing-delete'; await this.updateOperation(op);

@@ -15,13 +15,13 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const downloads = process.env.WIKISHIP_SMOKE_DOWNLOADS ?? '/tmp/wikiship-smoke/downloads';
-const executablePath = process.env.WIKISHIP_OBSIDIAN_EXECUTABLE ?? '/opt/Obsidian/obsidian';
+const downloads = process.env.wikiship_SMOKE_DOWNLOADS ?? '/tmp/wikiship-smoke/downloads';
+const executablePath = process.env.wikiship_OBSIDIAN_EXECUTABLE ?? '/opt/Obsidian/obsidian';
 const root = await mkdtemp(join(tmpdir(), 'wikiship-native-'));
 const profile = join(root, 'profile'), vault = join(root, 'vault');
 const output = join(repository, 'artifacts');
 const token = randomBytes(32).toString('hex');
-const port = Number(process.env.WIKISHIP_SMOKE_PORT ?? 29123);
+const port = Number(process.env.wikiship_SMOKE_PORT ?? 29123);
 const checks = [];
 const pageErrors = [];
 let electron, browser, page, client, bridgeClient;
@@ -265,7 +265,7 @@ try {
   bridgeClient = new Client({ name: 'wikiship-native-stdio-acceptance', version: '1.0.0' });
   await bridgeClient.connect(new StdioClientTransport({ command: process.execPath,
     args: [join(repository, 'adapters', 'stdio-bridge.mjs')],
-    env: { WIKISHIP_MCP_URL: `http://127.0.0.1:${port}/mcp/`, WIKISHIP_API_KEY: token }, stderr: 'pipe' }));
+    env: { wikiship_MCP_URL: `http://127.0.0.1:${port}/mcp/`, wikiship_API_KEY: token }, stderr: 'pipe' }));
   assert.equal((await bridgeClient.listTools()).tools.length, 19);
   const bridgeContext = await bridgeClient.callTool({ name: 'wikiship_get_editor_state' });
   assert.ok(!bridgeContext.isError);
@@ -273,7 +273,7 @@ try {
   for (const name of ['command_execute', 'open_file', 'vault_write', 'wikiship_raw_write']) assert.equal((await bridgeClient.callTool({ name, arguments: {} })).isError, true);
   passed('Actual stdio bridge lists 19 approved tools, reads live context, and refuses unjournaled write and command bypasses');
 
-  const versions = await page.evaluate(() => ({ obsidianRelease: '1.13.7', electron: process.versions.electron, wikiShip: app.plugins.plugins.wikiship.manifest.version, localRestApi: app.plugins.plugins['obsidian-local-rest-api'].manifest.version }));
+  const versions = await page.evaluate(() => ({ obsidianRelease: '1.13.7', electron: process.versions.electron, wikiship: app.plugins.plugins.wikiship.manifest.version, localRestApi: app.plugins.plugins['obsidian-local-rest-api'].manifest.version }));
   await json(join(output, 'obsidian-acceptance.json'), { ok: true, versions, checks, pageErrors, fixture: root });
   await rm(join(output, 'obsidian-acceptance-failure.png'), { force: true });
   console.log(JSON.stringify({ ok: true, checks: checks.length, versions, screenshot: join(output, 'obsidian-acceptance.png') }));

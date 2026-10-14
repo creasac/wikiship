@@ -1,6 +1,6 @@
 import { ItemView, MarkdownView, Modal, Notice, type App, type WorkspaceLeaf } from 'obsidian';
 import { diffLines } from 'diff';
-import { WIKISHIP_ICON_ID } from '../icon';
+import { wikishipIconId } from '../icon';
 import type { Operation, Snapshot } from '../model';
 import type { Journal } from '../provenance/journal';
 import { locationsForFile, operationLabel } from './changes';
@@ -152,7 +152,7 @@ export class ChangesView extends ItemView {
   constructor(leaf: WorkspaceLeaf, readonly journal: Journal) { super(leaf); }
   getViewType() { return CHANGES_VIEW_TYPE; }
   getDisplayText() { return "machine minds' changes"; }
-  getIcon() { return WIKISHIP_ICON_ID; }
+  getIcon() { return wikishipIconId; }
   async onOpen() {
     this.contentEl.addClass('wikiship-view');
     this.stop = this.journal.subscribe(() => this.render()); this.render();
@@ -176,27 +176,27 @@ export class ChangesView extends ItemView {
       const title = session || 'Unlabelled session';
       section.createEl('h5', { text: title, cls: 'wikiship-path' });
       section.createEl('div', { cls: 'wikiship-muted wikiship-batch-meta', text: `${formatBatchTime(operations)} · ${formatAgents(operations)}` });
-      const sessionActions = section.createDiv('wikiship-session-actions');
-      action(sessionActions, 'Approve session', async () => {
-        const deletes = operations.filter(op => op.kind === 'delete' && op.status === 'pending-delete').length;
-        const result = await this.journal.completeSession(session);
-        new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} file(s) to trash` : ''}.`);
-      }, 'mod-cta');
-      action(sessionActions, 'Undo session', async () => {
-        const result = await this.journal.undoSession(session); new Notice(`Undid ${result.undone} change(s). Review data cleared.`);
-      }, 'mod-warning');
       for (const fileGroup of batch.files) {
         const file = section.createDiv('wikiship-file-group');
-        const row = file.createDiv('wikiship-file-row');
         const filenameClass = fileGroup.category === 'Added' ? ' wikiship-file-added'
           : fileGroup.category === 'Deleted' ? ' wikiship-file-deleted' : '';
-        action(row, fileGroup.path, () => inspectFile(this.app, this.journal, fileGroup), `wikiship-text-button wikiship-file-link${filenameClass}`);
+        const row = action(file, '', () => inspectFile(this.app, this.journal, fileGroup), 'wikiship-text-button wikiship-file-row');
+        row.createSpan({ cls: `wikiship-file-link${filenameClass}`, text: fileGroup.path });
         const counts = fileGroup.lineTotalsAvailable
           ? [lineCount(fileGroup.removed, '−'), lineCount(fileGroup.added, '+')].filter(Boolean).join(' ')
           : 'line totals unavailable';
         row.createSpan({ cls: `wikiship-file-meta${fileGroup.conflict ? ' wikiship-warning' : ''}`, text: counts });
-        if (fileGroup.conflict) row.createEl('p', { cls: 'wikiship-warning wikiship-file-warning', text: 'Recorded steps do not form a verified sequence. Open review to inspect each step.' });
+        if (fileGroup.conflict) file.createEl('p', { cls: 'wikiship-warning wikiship-file-warning', text: 'Recorded steps do not form a verified sequence. Open review to inspect each step.' });
       }
+      const sessionActions = section.createDiv('wikiship-session-actions');
+      action(sessionActions, 'Approve', async () => {
+        const deletes = operations.filter(op => op.kind === 'delete' && op.status === 'pending-delete').length;
+        const result = await this.journal.completeSession(session);
+        new Notice(`Approved ${result.cleared} change(s)${deletes ? `; moved ${deletes} file(s) to trash` : ''}.`);
+      }, 'mod-cta');
+      action(sessionActions, 'Undo', async () => {
+        const result = await this.journal.undoSession(session); new Notice(`Undid ${result.undone} change(s). Review data cleared.`);
+      }, 'mod-warning');
     }
   }
 }
@@ -331,7 +331,7 @@ export class FileReviewModal extends Modal {
       snapshotPanel(columns, 'Before', op.before);
       snapshotPanel(columns, op.kind === 'delete' && op.status === 'pending-delete' ? 'After approval' : 'After', op.after);
     }
-    root.createEl('p', { cls: 'wikiship-muted', text: 'Approval clears these review records. WikiShip cannot restore them afterward.' });
+    root.createEl('p', { cls: 'wikiship-muted', text: 'Approval clears these review records. wikiship cannot restore them afterward.' });
   }
 }
 

@@ -3,7 +3,7 @@ import { getAPI, type LocalRestApiPublicApi } from 'obsidian-local-rest-api';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Journal } from './provenance/journal';
-import { registerWikiShipIcon, WIKISHIP_ICON_ID } from './icon';
+import { registerwikishipIcon, wikishipIconId } from './icon';
 import { trackJournalShutdown, waitForJournalShutdown } from './provenance/lifecycle';
 import { AtomicStateStore, DEFAULT_EXCLUSIONS, PathPolicy } from './provenance/storage';
 import { ObsidianFiles } from './provenance/obsidian-files';
@@ -14,7 +14,7 @@ import { registerTools } from './mcp/tools';
 
 interface Settings { exclusions: string[]; }
 
-export default class WikiShip extends Plugin {
+export default class wikiship extends Plugin {
   journal!: Journal;
   context!: EditorContext;
   private store?: AtomicStateStore;
@@ -43,7 +43,7 @@ export default class WikiShip extends Plugin {
       await this.journal.load();
       if (this.stopped) return;
       this.context = new EditorContext(this.app, path => files.readContext(path));
-      registerWikiShipIcon();
+      registerwikishipIcon();
       this.registerView(CHANGES_VIEW_TYPE, leaf => new ChangesView(leaf, this.journal));
       const gutter = createReviewExtension(this.journal, id => new FileReviewModal(this.app, this.journal, id).open());
       this.registerEditorExtension(gutter.extension);
@@ -71,9 +71,9 @@ export default class WikiShip extends Plugin {
         hasReviewableChanges = hasReviewable;
         this.connection?.setText(count ? `wikiship · ${count} change${count === 1 ? '' : 's'} · review` : this.api ? 'wikiship · MCP ready' : 'wikiship · enable Local REST API');
       }));
-      this.addRibbonIcon(WIKISHIP_ICON_ID, 'wikiship', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
+      this.addRibbonIcon(wikishipIconId, 'wikiship', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
       this.addCommands();
-      this.addSettingTab(new WikiShipSettings(this.app, this));
+      this.addSettingTab(new wikishipSettings(this.app, this));
       this.registerEvent(this.app.workspace.on('obsidian-local-rest-api:loaded', () => this.connectMcp()));
       this.app.workspace.onLayoutReady(() => {
         if (this.stopped) return;
@@ -133,8 +133,8 @@ export default class WikiShip extends Plugin {
 }
 function message(error: unknown) { return error instanceof Error ? error.message : String(error); }
 
-class WikiShipSettings extends PluginSettingTab {
-  constructor(app: App, private plugin: WikiShip) { super(app, plugin); }
+class wikishipSettings extends PluginSettingTab {
+  constructor(app: App, private plugin: wikiship) { super(app, plugin); }
   display() {
     this.containerEl.empty();
     this.containerEl.createEl('h2', { text: 'wikiship' });

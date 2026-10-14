@@ -58,15 +58,15 @@ export function createBridge(upstream) {
 
 export function readConfiguration(env) {
   let url;
-  try { url = new URL(env.WIKISHIP_MCP_URL || 'https://127.0.0.1:27124/mcp/'); }
-  catch { throw new Error('WIKISHIP_MCP_URL must be a local MCP URL.'); }
+  try { url = new URL(env.wikiship_MCP_URL || 'https://127.0.0.1:27124/mcp/'); }
+  catch { throw new Error('wikiship_MCP_URL must be a local MCP URL.'); }
   if (!['http:', 'https:'].includes(url.protocol) || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
     !['/mcp', '/mcp/'].includes(url.pathname) || url.search || url.hash || url.username || url.password) {
-    throw new Error('WIKISHIP_MCP_URL must point to /mcp on localhost with no credentials, query, or fragment.');
+    throw new Error('wikiship_MCP_URL must point to /mcp on localhost with no credentials, query, or fragment.');
   }
-  const token = env.WIKISHIP_API_KEY;
+  const token = env.wikiship_API_KEY;
   if (typeof token !== 'string' || token.length === 0 || /[\r\n]/.test(token)) {
-    throw new Error('Set WIKISHIP_API_KEY to the Local REST API key in the client environment.');
+    throw new Error('Set wikiship_API_KEY to the Local REST API key in the client environment.');
   }
   return { url, token };
 }

@@ -4,7 +4,7 @@ import type { Journal } from '../provenance/journal';
 import type { Operation } from '../model';
 
 export interface EditorTarget { path: string; from: number; to: number; fileHash: string; }
-export interface WikiShipContext {
+export interface wikishipContext {
   getEditorState(): unknown | Promise<unknown>;
   getSelection(): unknown | Promise<unknown>;
   selectionTarget(): Promise<EditorTarget>;
@@ -57,7 +57,7 @@ function verifyTarget(target: EditorTarget, expected: { path: string; expectedHa
   }
 }
 
-export function createToolDefinitions(context: WikiShipContext, journal: Journal): McpToolDefinition[] {
+export function createToolDefinitions(context: wikishipContext, journal: Journal): McpToolDefinition[] {
   const mutate = async (input: Parameters<Journal['mutate']>[0], guard?: Parameters<Journal['mutate']>[1]) => operationSummary(await journal.mutate(input, guard));
   return [
     tool('wikiship_get_editor_state', 'Read the active Markdown editor, cursor, selection, current section, and open Markdown tabs.', {}, async () => context.getEditorState()),
@@ -125,6 +125,6 @@ export function createToolDefinitions(context: WikiShipContext, journal: Journal
   ];
 }
 
-export function registerTools(api: Pick<LocalRestApiPublicApi, 'addMcpTool'>, context: WikiShipContext, journal: Journal) {
+export function registerTools(api: Pick<LocalRestApiPublicApi, 'addMcpTool'>, context: wikishipContext, journal: Journal) {
   for (const definition of createToolDefinitions(context, journal)) api.addMcpTool(definition);
 }

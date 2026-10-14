@@ -12,7 +12,7 @@ function descendant(root: string, path: string): string {
   return result;
 }
 
-/** WikiShip's path policy; it never changes Obsidian's own visibility settings. */
+/** wikiship's path policy; it never changes Obsidian's own visibility settings. */
 export class PathPolicy {
   constructor(readonly root: string, private configDir: string, private exclusions = DEFAULT_EXCLUSIONS) {}
   validate(path: string): string {

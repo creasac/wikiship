@@ -19,8 +19,8 @@ After `npm install` in this repository, configure a stdio MCP server with:
       "command": "/absolute/path/to/node",
       "args": ["/absolute/path/to/wikiship/adapters/stdio-bridge.mjs"],
       "env": {
-        "WIKISHIP_MCP_URL": "https://127.0.0.1:27124/mcp/",
-        "WIKISHIP_API_KEY": "YOUR_LOCAL_REST_API_KEY",
+        "wikiship_MCP_URL": "https://127.0.0.1:27124/mcp/",
+        "wikiship_API_KEY": "YOUR_LOCAL_REST_API_KEY",
         "NODE_EXTRA_CA_CERTS": "/absolute/path/to/obsidian-local-rest-api.crt"
       }
     }
@@ -106,7 +106,7 @@ A section path includes every ancestor, for example `["Architecture", "Storage"]
 
 `wikiship_get_changes({path?, offset?, limit?})` returns newest-first summaries, `total`, and `nextOffset`. The default limit is 20 and the maximum is 100. Supplying `path` matches either side of a move. Summaries include hashes and whether a deletion awaits human approval; they do not expose file content or approval/undo actions.
 
-Review, undo, approval, and recovery stay in the human Obsidian interface. An agent cannot approve or clear its own changes through the bridge. Undo requires the current file state to match the recorded result and refuses newer edits. Approval removes the journal content; WikiShip cannot restore cleared changes.
+Review, undo, approval, and recovery stay in the human Obsidian interface. An agent cannot approve or clear its own changes through the bridge. Undo requires the current file state to match the recorded result and refuses newer edits. Approval removes the journal content; wikiship cannot restore cleared changes.
 
 ## Verified protocol behavior
 

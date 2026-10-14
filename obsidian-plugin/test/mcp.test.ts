@@ -5,7 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { createToolDefinitions, type EditorTarget, type WikiShipContext } from '../src/mcp/tools';
+import { createToolDefinitions, type EditorTarget, type wikishipContext } from '../src/mcp/tools';
 import { Journal } from '../src/provenance/journal';
 import { headingRanges, sameHeading } from '../src/context/references';
 import { hash, textSnapshot, type Operation, type Snapshot, type State, type StateStore, type WorkspaceFiles } from '../src/model';
@@ -41,7 +41,7 @@ function headings(text: string) {
     heading: match[2]!, level: match[1]!.length, position: { start: { offset: match.index } },
   })), text.length);
 }
-class Context implements WikiShipContext {
+class Context implements wikishipContext {
   active = 'A.md'; from = 0; to = 5;
   constructor(private files: MemoryFiles) {}
   private text(path = this.active) { const file = this.files.values.get(path); if (!file) throw new Error('Missing file.'); return file.data; }
@@ -245,10 +245,10 @@ describe('tools-only stdio bridge policy', () => {
   it('rejects remote/credential-bearing endpoints and does not include secrets in config errors', async () => {
     const { readConfiguration } = await bridgeModule();
     for (const url of ['https://example.com/mcp', 'https://secret@localhost/mcp', 'http://localhost/vault/', 'https://localhost/mcp?token=secret']) {
-      expect(() => readConfiguration({ WIKISHIP_MCP_URL: url, WIKISHIP_API_KEY: 'secret' })).toThrow('must point to /mcp');
+      expect(() => readConfiguration({ wikiship_MCP_URL: url, wikiship_API_KEY: 'secret' })).toThrow('must point to /mcp');
     }
-    const configured = readConfiguration({ WIKISHIP_MCP_URL: 'http://127.0.0.1:27123/mcp', WIKISHIP_API_KEY: 'test-key' });
+    const configured = readConfiguration({ wikiship_MCP_URL: 'http://127.0.0.1:27123/mcp', wikiship_API_KEY: 'test-key' });
     expect(configured.url.hostname).toBe('127.0.0.1');
-    expect(() => readConfiguration({ WIKISHIP_API_KEY: 'secret\nvalue' })).toThrow('Set WIKISHIP_API_KEY');
+    expect(() => readConfiguration({ wikiship_API_KEY: 'secret\nvalue' })).toThrow('Set wikiship_API_KEY');
   });
 });

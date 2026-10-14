@@ -40,12 +40,12 @@ The current fixture targets Obsidian **1.13.7** and Local REST API **5.3.0**. Ob
 
 ```sh
 npm run build
-WIKISHIP_OBSIDIAN_EXECUTABLE=/absolute/path/to/obsidian \
-WIKISHIP_SMOKE_DOWNLOADS=/absolute/path/to/downloads \
+wikiship_OBSIDIAN_EXECUTABLE=/absolute/path/to/obsidian \
+wikiship_SMOKE_DOWNLOADS=/absolute/path/to/downloads \
 xvfb-run -a node scripts/obsidian-smoke.mjs
 ```
 
-The default fixture HTTP port is `29123`; set `WIKISHIP_SMOKE_PORT` if it is already in use. Production Electron disables the main-process inspector used by Playwright's Electron launcher, so the harness attaches to the disposable app's Chromium DevTools endpoint. It verifies actual commands, editor content, sidebar controls, and MCP calls rather than relying on mocked Obsidian classes.
+The default fixture HTTP port is `29123`; set `wikiship_SMOKE_PORT` if it is already in use. Production Electron disables the main-process inspector used by Playwright's Electron launcher, so the harness attaches to the disposable app's Chromium DevTools endpoint. It verifies actual commands, editor content, sidebar controls, and MCP calls rather than relying on mocked Obsidian classes.
 
 The fixture uses local HTTP with a randomly generated API key solely inside the disposable test profile. Normal client setup defaults to the host's authenticated HTTPS endpoint with a trusted certificate. The test's short polling loops wait for actual editor, server, or persistence state.
 
@@ -77,4 +77,4 @@ During disable/re-enable in the same Obsidian renderer, startup waits for the pr
 
 If plugin startup rejects `state.json`, preserve it and repair from a known backup; do not replace it with an empty object. After a process exits before asynchronous cleanup finishes, wikiship automatically recovers a lock only when its record names this host and the OS reports that its PID no longer exists. A recovery guard serializes competing reclaimers; live PIDs (including possibly reused PIDs), foreign hosts, permission errors, corrupt records, and symlinks fail closed. Preserve unverifiable locks for inspection. Never delete a lock while another instance may be using it. Keep the journal and its locks local to one host; synchronization of plugin state is unsupported. Filesystems without the required exclusive hard-link/directory operations fail closed.
 
-Pending review records retain complete file contents, including deleted content, until explicitly undone or approved. There is no automatic expiry or journal sync merge in v1. Approval clears WikiShip review records; deleted files accepted by the user are in trash.
+Pending review records retain complete file contents, including deleted content, until explicitly undone or approved. There is no automatic expiry or journal sync merge in v1. Approval clears wikiship review records; deleted files accepted by the user are in trash.

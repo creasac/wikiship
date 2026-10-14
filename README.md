@@ -26,7 +26,7 @@ Enable **wikiship** and **Local REST API with MCP** under Community plugins. wik
 1. Select text in the current note, or place the cursor in a section. The agent calls `wikiship_get_editor_state` to read the active file, selected text, cursor, section metadata, and hashes.
 2. If needed, the agent reads a bounded saved-file excerpt with `wikiship_get_file_state`. Section metadata contains offsets and heading paths, not the section body. If disk and editor hashes differ, save or resolve that difference before editing.
 3. Let the agent edit using a `wikiship_*` mutation tool. The **machine minds' changes** panel opens when the first change arrives and lists changes by session and file.
-4. Review the net diff for each file, or expand its operation history for individual steps. **Undo file** restores its earlier state; **Approve session** keeps approved edits and clears WikiShip's review data. A staged deletion leaves the file in place until approval, then moves it to trash.
+4. Review the net diff for each file, or expand its operation history for individual steps. **Undo file** restores its earlier state; **Approve session** keeps approved edits and clears wikiship's review data. A staged deletion leaves the file in place until approval, then moves it to trash.
 
 Start your conversation in your configured MCP client. See the [client setup and tool guide](docs/mcp-tools.md) for connection and safe-edit instructions.
 
@@ -51,11 +51,11 @@ The host's shared MCP endpoint also contains untracked writes. The included stdi
 
 ## Scope and limits
 
-wikiship v1 supports local desktop vaults and files up to 5 MiB. Text editing requires valid UTF-8; binary files can be moved and staged for deletion. Approved deletions move to trash. Parent directories must already exist. WikiShip skips configured generated directories, vault configuration, `.git`, `.trash`, and symlinks. These are WikiShip access rules, not changes to Obsidian settings.
+wikiship v1 supports local desktop vaults and files up to 5 MiB. Text editing requires valid UTF-8; binary files can be moved and staged for deletion. Approved deletions move to trash. Parent directories must already exist. wikiship skips configured generated directories, vault configuration, `.git`, `.trash`, and symlinks. These are wikiship access rules, not changes to Obsidian settings.
 
 Undo refuses newer edits too; v1 does not attempt an automatic merge. Moves do not rewrite backlinks. Markdown headings use a standard parser against the current buffer; selection and cursor mutations recheck the observed target before writing. Rich artifact element selection, semantic wiki generation, Git integration, and sync are future work.
 
-While changes await review, WikiShip retains their recorded content in the vault's plugin data. **Undo** or **Approve** removes it; after approval, WikiShip cannot restore those changes. Keep the journal out of concurrent multi-device writes; configure your own sync/backup exclusions if appropriate. WikiShip does not configure sync or resolve journal sync conflicts.
+While changes await review, wikiship retains their recorded content in the vault's plugin data. **Undo** or **Approve** removes it; after approval, wikiship cannot restore those changes. Keep the journal out of concurrent multi-device writes; configure your own sync/backup exclusions if appropriate. wikiship does not configure sync or resolve journal sync conflicts.
 
 - [Architecture and data safety](docs/architecture.md)
 - [Development and verification](docs/development.md)
