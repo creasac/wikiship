@@ -51,6 +51,7 @@ async function openChangeLocation(app: App, journal: Journal, op: Operation) {
 interface FileReviewGroup {
   operations: Operation[];
   path: string;
+  movedFrom?: string;
   first: Operation;
   last: Operation;
   category: 'Added' | 'Modified' | 'Deleted' | 'Moved' | 'Needs review';
@@ -105,10 +106,11 @@ function reviewBatches(operations: Operation[]): ReviewBatch[] {
         if (op.kind === 'move' && op.target) {
           owner.delete(op.path); owner.set(op.target, group);
         }
-        group.path = displayFilePath(group.operations);
+        Object.assign(group, displayFilePath(group.operations));
       } else {
+        const displayPath = displayFilePath([op]);
         const created: FileReviewGroup = {
-          operations: [op], path: op.kind === 'move' ? `${op.path} → ${op.target}` : op.path,
+          operations: [op], ...displayPath,
           first: op, last: op, category: 'Modified', removed: 0, added: 0, lineTotalsAvailable: true, conflict: false,
         };
         groups.push(created); owner.set(op.kind === 'move' && op.target ? op.target : op.path, created);
@@ -131,7 +133,7 @@ function reviewBatches(operations: Operation[]): ReviewBatch[] {
     }
     const folders: FolderReviewGroup[] = folderOperations.map(operation => ({
       operation,
-      path: operation.kind === 'move-folder' ? `${operation.path} → ${operation.target}` : operation.path,
+      path: operation.path,
       category: operation.kind === 'create-folder' ? 'Added' : operation.kind === 'delete-folder' ? 'Deleted' : 'Moved',
       entries: folderEntries((operation.kind === 'delete-folder' ? operation.before : operation.after)!),
       needsReview: !['applied', 'pending-delete'].includes(operation.status),
@@ -144,7 +146,17 @@ function displayFilePath(operations: Operation[]) {
   const firstPath = operations[0]!.path;
   const last = operations.at(-1)!;
   const finalPath = last.kind === 'move' ? last.target! : last.path;
-  return firstPath === finalPath ? firstPath : `${firstPath} → ${finalPath}`;
+  return { path: finalPath, movedFrom: firstPath === finalPath ? undefined : firstPath };
+}
+
+function renderPath(parent: HTMLElement, path: string, movedFrom?: string, folder = false) {
+  const suffix = folder ? '/' : '';
+  const stack = parent.createSpan({ cls: 'wikiship-path-stack' });
+  if (movedFrom) {
+    stack.createSpan({ text: `${movedFrom}${suffix}` });
+    stack.createSpan({ cls: 'wikiship-move-arrow', text: '→' });
+  }
+  stack.createSpan({ text: `${path}${suffix}` });
 }
 
 function lineCount(value: number, sign: '−' | '+') { return value ? `${sign} ${value}` : ''; }
@@ -201,8 +213,9 @@ export class ChangesView extends ItemView {
         const summary = details.createEl('summary', { cls: 'wikiship-folder-summary' });
         const filenameClass = folderGroup.category === 'Added' ? ' wikiship-file-added'
           : folderGroup.category === 'Deleted' ? ' wikiship-file-deleted' : '';
-        const marker = folderGroup.category === 'Added' ? '+ ' : folderGroup.category === 'Deleted' ? '− ' : '↔ ';
-        summary.createSpan({ cls: `wikiship-file-link${filenameClass}`, text: `${marker}${folderGroup.path}/` });
+        const path = summary.createSpan({ cls: `wikiship-file-link${filenameClass}` });
+        renderPath(path, folderGroup.operation.kind === 'move-folder' ? folderGroup.operation.target! : folderGroup.path,
+          folderGroup.operation.kind === 'move-folder' ? folderGroup.path : undefined, true);
         summary.createSpan({ cls: 'wikiship-file-meta', text: `folder · ${folderGroup.entries.filter(entry => entry.kind === 'file').length} files · ${folderGroup.entries.filter(entry => entry.kind === 'folder').length} subfolders` });
         if (folderGroup.needsReview) details.createEl('p', { cls: 'wikiship-warning wikiship-file-warning', text: operation.error ?? 'Folder operation needs recovery before approval.' });
         if (!folderGroup.entries.length) details.createEl('div', { cls: 'wikiship-muted wikiship-folder-empty', text: 'Empty folder' });
@@ -220,7 +233,8 @@ export class ChangesView extends ItemView {
         const filenameClass = fileGroup.category === 'Added' ? ' wikiship-file-added'
           : fileGroup.category === 'Deleted' ? ' wikiship-file-deleted' : '';
         const row = action(file, '', () => inspectFile(this.app, this.journal, fileGroup), 'wikiship-text-button wikiship-file-row');
-        row.createSpan({ cls: `wikiship-file-link${filenameClass}`, text: fileGroup.path });
+        const path = row.createSpan({ cls: `wikiship-file-link${filenameClass}` });
+        renderPath(path, fileGroup.path, fileGroup.movedFrom);
         const counts = fileGroup.lineTotalsAvailable
           ? [lineCount(fileGroup.removed, '−'), lineCount(fileGroup.added, '+')].filter(Boolean).join(' ')
           : 'line totals unavailable';
@@ -306,7 +320,8 @@ export class FileReviewModal extends Modal {
     this.titleEl.setText('Review file');
     if (!batch || !group) { root.createEl('p', { text: 'This file is no longer in the review queue.' }); return; }
     const index = batch.files.indexOf(group);
-    root.createEl('p', { cls: 'wikiship-path wikiship-review-file-title', text: group.path });
+    const title = root.createDiv({ cls: 'wikiship-path wikiship-review-file-title' });
+    renderPath(title, group.path, group.movedFrom);
     root.createEl('p', { cls: 'wikiship-muted', text: `${index + 1} of ${batch.files.length} files · ${group.category}` });
     if (group.conflict) root.createEl('p', { cls: 'wikiship-warning', text: 'These recorded steps do not form one verified before-and-after chain. Review each step and the current file before approving or undoing.' });
     if (group.operations.some(op => op.kind === 'delete' && op.status === 'pending-delete')) {

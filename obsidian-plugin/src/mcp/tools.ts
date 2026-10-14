@@ -20,7 +20,7 @@ const offset = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const content = z.string().max(2_000_000).describe('Literal replacement text.');
 const identity = {
   agent: z.string().min(1).max(128).optional().describe('Optional self-reported client identity; not authenticated identity.'),
-  session: z.string().min(1).max(128).optional().describe("Optional self-reported session label. Use the same label for related changes so a person can undo or clear them together in machine minds' changes."),
+  session: z.string().min(1).max(128).optional().describe("Optional self-reported session label. Use a short, stable name without dates and reuse it for related changes so a person can undo or clear them together in machine minds' changes."),
 };
 
 function result(value: unknown): McpToolResult {
