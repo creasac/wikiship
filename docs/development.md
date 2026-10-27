@@ -13,15 +13,15 @@ npm run build
 
 `npm run check` runs those final three checks together. `npm run dev -w obsidian-plugin` watches the plugin source. Reload the plugin in Obsidian after a build. The production bundle externalizes Obsidian and CodeMirror; bundling a second CodeMirror instance would break editor extensions.
 
-The Local REST API npm package supplies only its small extension helper and public types; users install the actual host plugin separately. The repository pins compatible Obsidian/CodeMirror types and includes the npm lockfile. Host 5.3.0 requires Obsidian 1.13.1 or later, which is also wikiship's declared minimum.
+The MCP SDK is bundled into wikiship's single `main.js`; users do not install a separate runtime or companion plugin. The repository pins compatible Obsidian/CodeMirror types and includes the npm lockfile.
 
 ## Automated checks
 
 The tests cover:
 
 - Live selections, source-aware links, unique section ancestry, real Markdown heading parsing, and editor-state races.
-- Journal persistence through edits, pending deletes, undo, clear, and restart; unapproved MCP tools are rejected by the bridge.
-- MCP schema publication and calls through an actual MCP SDK client, plus the bridge's fixed allowlist and rejection of untracked writes.
+- Journal persistence through edits, pending deletes, undo, clear, and restart.
+- MCP schema publication and calls through an actual MCP SDK client; only registered wikiship read tools and journal-backed mutations are exposed.
 - Write-ahead intent, concurrent mutation serialization, snapshot integrity, staged deletion to trash, binary preservation, and safe session undo.
 - Persistence failures before/after file writes, restart recovery, uncertain partial moves, inverse recovery direction, shutdown drain, and corrupted saved state.
 - Path traversal, symlinks, journal writer locks, external journal changes, and actual atomic store persistence in temporary directories.
@@ -34,9 +34,9 @@ Unit tests use a small Obsidian stub because the npm package contains public dec
 
 ## Native acceptance harness
 
-`scripts/obsidian-smoke.mjs` runs against the real Obsidian application and the official Local REST API plugin, using a fresh temporary vault/profile and an SDK Streamable HTTP MCP client. It does not use a personal vault or edit the installed app. It writes a verification report and screenshot under `artifacts/`.
+`scripts/obsidian-smoke.mjs` runs against the real Obsidian application using a fresh temporary vault/profile and an SDK Streamable HTTP MCP client. It does not use a personal vault or edit the installed app. It writes a verification report and screenshot under `artifacts/`.
 
-The current fixture targets Obsidian **1.13.7** and Local REST API **5.3.0**. Obtain the desktop runtime and `obsidian-1.13.7.asar.gz` from the [official Obsidian release](https://github.com/obsidianmd/obsidian-releases/releases/tag/v1.13.7). Put the compressed ASAR in a temporary downloads directory. From the [official Local REST API release](https://github.com/coddingtonbear/obsidian-local-rest-api/releases/tag/5.3.0), save `main.js` there as `rest-main.js` and `manifest.json` as `rest-manifest.json`. Use a compatible desktop runtime; loading the newer ASAR into an old Electron installer is insufficient.
+The current fixture targets Obsidian **1.13.7**. Obtain the desktop runtime and `obsidian-1.13.7.asar.gz` from the [official Obsidian release](https://github.com/obsidianmd/obsidian-releases/releases/tag/v1.13.7). Put the compressed ASAR in a temporary downloads directory. Use a compatible desktop runtime; loading the newer ASAR into an old Electron installer is insufficient.
 
 ```sh
 npm run build
@@ -45,19 +45,19 @@ wikiship_SMOKE_DOWNLOADS=/absolute/path/to/downloads \
 xvfb-run -a node scripts/obsidian-smoke.mjs
 ```
 
-The default fixture HTTP port is `29123`; set `wikiship_SMOKE_PORT` if it is already in use. Production Electron disables the main-process inspector used by Playwright's Electron launcher, so the harness attaches to the disposable app's Chromium DevTools endpoint. It verifies actual commands, editor content, sidebar controls, and MCP calls rather than relying on mocked Obsidian classes.
+The fixture MCP port is `27126`; close any other Obsidian instance running this development build before the native run. Production Electron disables the main-process inspector used by Playwright's Electron launcher, so the harness attaches to the disposable app's Chromium DevTools endpoint. It verifies actual commands, editor content, sidebar controls, and MCP calls rather than relying on mocked Obsidian classes.
 
-The fixture uses local HTTP with a randomly generated API key solely inside the disposable test profile. Normal client setup defaults to the host's authenticated HTTPS endpoint with a trusted certificate. The test's short polling loops wait for actual editor, server, or persistence state.
+The fixture uses local HTTP with a random bearer token solely inside the disposable test profile. The test's short polling loops wait for actual editor, server, or persistence state.
 
 ### Native acceptance run
 
-The harness checks live selection and section metadata, exact editor updates, the auto-opened change panel and diff, conflict-safe undo, staged file and folder deletion, folder creation and moves, paged review, journal clearing, host reload, the 24-tool bridge, and the six-command palette. Run it in a disposable profile before claiming native verification for a revision.
+The harness checks standalone startup with wikiship as the only community plugin, live selection and section metadata, exact editor updates, the auto-opened change panel and diff, conflict-safe undo, staged file and folder deletion, folder creation and moves, paged review, journal clearing, reload, authentication, the 23-tool MCP endpoint, and the six-command palette. Run it in a disposable profile before claiming native verification for a revision.
 
 The harness writes `artifacts/obsidian-acceptance.json` and `artifacts/obsidian-acceptance.png`. Generated local artifacts are not committed.
 
 ## Manual desktop acceptance
 
-Use a disposable ordinary project folder containing Markdown and source files. Install both plugins and connect an MCP client using the bridge guide.
+Use a disposable ordinary project folder containing Markdown and source files. Install wikiship alone, copy the token-bearing Codex config from its settings, and connect a local MCP client.
 
 1. Select two paragraphs in note A. Fetch live editor state and verify the exact selection, offsets, hash, and link metadata. Switch to note B; the next read must describe B.
 2. Put the cursor in a section in B. Verify its heading path/range; read its saved body with `wikiship_get_file_state` and compare hashes. Move the selection/cursor after reading and verify a mutation using the old target is refused.

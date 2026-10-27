@@ -1,10 +1,9 @@
 {
   "name": "wikiship-workspace",
   "private": true,
-  "version": "0.1.8",
+  "version": "0.2.0",
   "workspaces": [
-    "obsidian-plugin",
-    "adapters"
+    "obsidian-plugin"
   ],
   "scripts": {
     "build": "npm run build -w obsidian-plugin",

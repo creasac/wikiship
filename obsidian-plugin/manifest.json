@@ -1,9 +1,9 @@
 {
   "id": "wikiship",
   "name": "wikiship",
-  "version": "0.1.8",
-  "minAppVersion": "1.13.1",
-  "description": "Share live editor context and review tracked changes from external machine minds.",
+  "version": "0.2.0",
+  "minAppVersion": "1.13.7",
+  "description": "Review AI edits from local agents in Obsidian with an authenticated local MCP server and reversible change journal.",
   "author": "wikiship",
   "isDesktopOnly": true
 }

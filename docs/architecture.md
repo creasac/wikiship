@@ -1,6 +1,6 @@
 # Architecture
 
-wikiship is a desktop Obsidian plugin. `src/context` reads the current editor selection, cursor, and section metadata; `src/provenance` owns state and mutations; `src/review` supplies native views and CodeMirror gutters; `src/mcp` registers tool definitions with Local REST API.
+wikiship is a desktop Obsidian plugin. `src/context` reads the current editor selection, cursor, and section metadata; `src/provenance` owns state and mutations; `src/review` supplies native views and CodeMirror gutters; `src/mcp` owns the local MCP endpoint and tools.
 
 ## Live editor context
 
@@ -34,11 +34,9 @@ Gutter positions are derived only through verified journal hash chains. Unknown 
 
 ## MCP and trust boundary
 
-[Local REST API 5.3.0](https://github.com/coddingtonbear/obsidian-local-rest-api/tree/5.3.0) exposes extension API v3, including typed tool registration and cleanup. wikiship re-registers when the host loads/reloads, and unregisters on unload. HTTP, authentication, certificate handling, and MCP sessions belong to the host. No second network server is started.
+`src/mcp/server.ts` starts a Streamable HTTP MCP server on `127.0.0.1:27126`. It authenticates every MCP request with a random bearer token saved in wikiship's plugin data. A local-origin check and loopback bind reduce browser and network exposure. The server registers wikiship's explicit tools only; it has no arbitrary Obsidian command runner or raw write endpoint. Six read/search tools use Obsidian vault and metadata APIs, while all mutation tools call the journal.
 
-The host API cannot remove the host's own writes for one extension. Direct clients can therefore bypass wikiship. `adapters/stdio-bridge.mjs` is a generic client-side MCP bridge to the same endpoint: it passes an exact list of wikiship tools plus seven inspected read/search tools. It rejects arbitrary commands, raw writes, copy/move/delete, upload grants, and even `open_file` because that tool can create an absent note. Read-only annotations alone never grant access. Resources/prompts are not forwarded.
-
-This bridge controls tools exposed by that connection. A client with another connection, the host API key, or shell/filesystem access can still write outside wikiship. Such writes are not attributed. Human review/undo/approval tools are not exposed to agents. Optional agent/session strings are explicitly self-reported: the host callback supplies no verified client identity.
+The endpoint is available only while the desktop vault and wikiship are running. Codex and other same-machine local MCP clients can connect directly over HTTP. Hosted/cloud agents cannot reach the loopback address. The copied Codex TOML contains the bearer token and should be treated as local credential data. A client with separate shell or filesystem access can still write outside wikiship; such edits are not attributed. Human review/undo/approval tools are not exposed to agents. Optional agent/session strings remain self-reported labels, not authenticated client identity.
 
 ## Storage, projects, and sync
 

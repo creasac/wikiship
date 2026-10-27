@@ -4,22 +4,18 @@ An Obsidian desktop plugin for live editor context and reviewable changes from e
 
 wikiship adds live selection and cursor context, controlled MCP mutations, a local operation journal, and a native machine minds' changes view. Your choice of agent, model, and sync tool stays yours.
 
-## Install for development
+## Install
 
-Requires **Obsidian 1.13.1+**, **Local REST API with MCP 5.3.0+**, and Node.js 22+ for development/the optional MCP bridge.
+Requires **Obsidian 1.13.7+ desktop**. wikiship includes its own authenticated MCP server; no companion plugin, Node.js installation, bridge, cloud account, or hosted service is needed.
+
+Install wikiship from **Settings → Community plugins → Browse** when it is published. For development, build it and copy `main.js`, `manifest.json`, and `styles.css` from `obsidian-plugin/` into `<vault>/.obsidian/plugins/wikiship/`.
 
 ```sh
 npm ci
 npm run check
 ```
 
-Copy these three files into `<your vault>/.obsidian/plugins/wikiship/` (use your vault's configured configuration directory if different):
-
-- `obsidian-plugin/main.js`
-- `obsidian-plugin/manifest.json`
-- `obsidian-plugin/styles.css`
-
-Enable **wikiship** and **Local REST API with MCP** under Community plugins. wikiship's review UI works without an agent connection. The status bar reports its MCP registration. Configure your external client using [the MCP connection guide](docs/mcp-tools.md).
+Enable wikiship. Its local MCP server starts automatically when the plugin loads. To connect the ChatGPT desktop app, choose **Copy Codex config** in Obsidian under **Settings → wikiship → Connect Codex**. In the desktop app, open **Settings → Configuration → Open config.toml**. Replace any existing `[mcp_servers.wikiship]` entry (including old `command`, `args`, or `env` settings) with the copied block, then save. Open **Settings → MCP servers** and select **Restart**. This uses the desktop app's own settings; no CLI or terminal is needed. Other local MCP clients can use the same URL and bearer token. See the [client connection guide](docs/mcp-tools.md).
 
 ## First workflow
 
@@ -28,7 +24,7 @@ Enable **wikiship** and **Local REST API with MCP** under Community plugins. wik
 3. Let the agent edit using a `wikiship_*` mutation tool. The **machine minds' changes** panel opens when the first change arrives and lists changes by session and file.
 4. Review the net diff for each file, or expand its operation history for individual steps. **Undo file** restores its earlier state; **Approve session** keeps approved edits and clears wikiship's review data. A staged deletion leaves the file in place until approval, then moves it to trash.
 
-Start your conversation in your configured MCP client. See the [client setup and tool guide](docs/mcp-tools.md) for connection and safe-edit instructions.
+Start your conversation in your configured local MCP client. See the [client setup and tool guide](docs/mcp-tools.md) for connection and safe-edit instructions.
 
 The wikiship icon, right-panel tab, and clickable status bar open **machine minds' changes**. The command palette contains these six wikiship commands:
 
@@ -37,7 +33,7 @@ The wikiship icon, right-panel tab, and clickable status bar open **machine mind
 - **Approve all changes**
 - **Undo all machine minds' changes**
 - **Recover interrupted operations**
-- **Reconnect Local REST API**
+- **Restart wikiship MCP server**
 
 ## What v1 guarantees
 
@@ -46,11 +42,13 @@ The wikiship icon, right-panel tab, and clickable status bar open **machine mind
 - File edits use Obsidian's atomic `process` API and recheck disk content and open editor buffers. Reverting is deliberately conservative: the entire file must match the recorded result.
 - Journal metadata stays in the wikiship plugin directory. No provenance syntax is inserted into Markdown.
 
-The host's shared MCP endpoint also contains untracked writes. The included stdio bridge exposes a fixed list of wikiship tools and inspected host read/search tools; all write tools exposed by that bridge go through the journal. It does not restrict a client's separate shell or filesystem tools. See [the exact provenance boundary](docs/architecture.md).
+wikiship exposes only its own read tools and journal-backed mutations on a loopback-only HTTP endpoint. A client's separate shell or filesystem access can still modify vault files outside the journal. See [the exact provenance boundary](docs/architecture.md).
 
 ## Scope and limits
 
 wikiship v1 supports local desktop vaults and files up to 5 MiB. Text editing requires valid UTF-8; binary files can be moved and staged for deletion. Approved deletions move to trash. Parent directories must already exist. wikiship skips configured generated directories, vault configuration, `.git`, `.trash`, and symlinks. These are wikiship access rules, not changes to Obsidian settings.
+
+The local MCP server uses the fixed loopback port `27126` while wikiship is enabled. Only one wikiship vault can serve MCP on this computer at a time. If another program or another vault already uses the port, Obsidian reports that the MCP server is unavailable; wikiship does not switch ports automatically. Free the port, then run **Restart wikiship MCP server** from Obsidian's command palette. The rest of wikiship's Obsidian review features remain available while MCP is unavailable.
 
 Undo refuses newer edits too; v1 does not attempt an automatic merge. Moves do not rewrite backlinks. Markdown headings use a standard parser against the current buffer; selection and cursor mutations recheck the observed target before writing. Rich artifact element selection, semantic wiki generation, Git integration, and sync are future work.
 

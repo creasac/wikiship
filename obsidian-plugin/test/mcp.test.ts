@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { createToolDefinitions, type EditorTarget, type wikishipContext } from '../src/mcp/tools';
@@ -87,7 +85,7 @@ async function fixture() {
   await journal.load();
   const context = new Context(files);
   const definitions = createToolDefinitions(context, journal);
-  const server = new McpServer({ name: 'local-rest-api-fixture', version: '5.3.0' });
+  const server = new McpServer({ name: 'wikiship-fixture', version: '0.2.0' });
   for (const definition of definitions) {
     server.registerTool(definition.name, {
       description: definition.description, inputSchema: definition.inputSchema,
@@ -244,53 +242,5 @@ describe('wikiship through a real MCP SDK client', () => {
     expect(response.isError).toBe(true);
     expect(files.values.get('B.md')!.data).toBe(original);
     expect(journal.state.operations).toEqual([]);
-  });
-});
-
-interface BridgeModule {
-  ALLOWED_TOOLS: readonly string[];
-  createBridge(upstream: Client): Server;
-  readConfiguration(env: Record<string, string | undefined>): { url: URL; token: string };
-}
-const bridgeUrl = new URL('../../adapters/stdio-bridge.mjs', import.meta.url).href;
-async function bridgeModule(): Promise<BridgeModule> { return import(bridgeUrl); }
-
-describe('tools-only stdio bridge policy', () => {
-  it('forwards allowed MCP calls and refuses host writes, arbitrary commands, and prefix lookalikes', async () => {
-    const { client: upstream, server: host, journal } = await fixture();
-    let bypassCalls = 0;
-    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikiship_raw_write']) {
-      host.registerTool(name, { inputSchema: { path: z.string().optional() } }, async () => {
-        bypassCalls++; return { content: [{ type: 'text', text: 'Bypassed' }] };
-      });
-    }
-    const { createBridge, ALLOWED_TOOLS } = await bridgeModule();
-    expect(ALLOWED_TOOLS).toHaveLength(24);
-    const readTools = ALLOWED_TOOLS.filter(name => !name.startsWith('wikiship_'));
-    for (const name of readTools) host.registerTool(name, { inputSchema: {} }, async () => ({ content: [{ type: 'text', text: JSON.stringify({ read: name }) }] }));
-    const bridge = createBridge(upstream), client = new Client({ name: 'external-agent', version: '1' });
-    const [agentTransport, bridgeTransport] = InMemoryTransport.createLinkedPair();
-    await bridge.connect(bridgeTransport); await client.connect(agentTransport);
-    closers.push(() => client.close(), () => bridge.close());
-    const list = await client.listTools();
-    expect(list.tools.map(tool => tool.name).sort()).toEqual([...ALLOWED_TOOLS].sort());
-    for (const name of ['vault_write', 'command_execute', 'open_file', 'vault_get_upload_url', 'wikiship_raw_write']) {
-      expect((await client.callTool({ name, arguments: { path: 'A.md' } })).isError).toBe(true);
-    }
-    expect(bypassCalls).toBe(0);
-    for (const name of readTools) expect(data(await client.callTool({ name, arguments: {} })).read).toBe(name);
-    const created = data(await client.callTool({ name: 'wikiship_create_file', arguments: { path: 'through-bridge.md', content: 'Journal me.' } }));
-    expect(created.status).toBe('applied');
-    expect(journal.state.operations[0]!.path).toBe('through-bridge.md');
-  });
-
-  it('rejects remote/credential-bearing endpoints and does not include secrets in config errors', async () => {
-    const { readConfiguration } = await bridgeModule();
-    for (const url of ['https://example.com/mcp', 'https://secret@localhost/mcp', 'http://localhost/vault/', 'https://localhost/mcp?token=secret']) {
-      expect(() => readConfiguration({ wikiship_MCP_URL: url, wikiship_API_KEY: 'secret' })).toThrow('must point to /mcp');
-    }
-    const configured = readConfiguration({ wikiship_MCP_URL: 'http://127.0.0.1:27123/mcp', wikiship_API_KEY: 'test-key' });
-    expect(configured.url.hostname).toBe('127.0.0.1');
-    expect(() => readConfiguration({ wikiship_API_KEY: 'secret\nvalue' })).toThrow('Set wikiship_API_KEY');
   });
 });

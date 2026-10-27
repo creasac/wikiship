@@ -1,7 +1,15 @@
 import { z } from 'zod';
-import type { LocalRestApiPublicApi, McpToolDefinition, McpToolResult } from 'obsidian-local-rest-api';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { Journal } from '../provenance/journal';
 import { folderEntries, type Operation } from '../model';
+
+export interface McpToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: z.ZodRawShape;
+  annotations: { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean; idempotentHint: boolean };
+  callback: (raw: unknown) => Promise<CallToolResult>;
+}
 
 export interface EditorTarget { path: string; from: number; to: number; fileHash: string; }
 export interface wikishipContext {
@@ -23,7 +31,7 @@ const identity = {
   session: z.string().min(1).max(128).optional().describe("Optional self-reported session label. Use a short, stable name without dates and reuse it for related changes so a person can undo or clear them together in machine minds' changes."),
 };
 
-function result(value: unknown): McpToolResult {
+function result(value: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(value) }] };
 }
 function tool<S extends z.ZodRawShape>(name: string, description: string, shape: S,
@@ -151,8 +159,4 @@ export function createToolDefinitions(context: wikishipContext, journal: Journal
       return { operations: operations.slice(args.offset, end).map(operationSummary), total: operations.length, nextOffset: end < operations.length ? end : null };
     }),
   ];
-}
-
-export function registerTools(api: Pick<LocalRestApiPublicApi, 'addMcpTool'>, context: wikishipContext, journal: Journal) {
-  for (const definition of createToolDefinitions(context, journal)) api.addMcpTool(definition);
 }

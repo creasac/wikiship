@@ -8,11 +8,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { chromium } from 'playwright-core';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const downloads = process.env.wikiship_SMOKE_DOWNLOADS ?? '/tmp/wikiship-smoke/downloads';
@@ -21,10 +20,10 @@ const root = await mkdtemp(join(tmpdir(), 'wikiship-native-'));
 const profile = join(root, 'profile'), vault = join(root, 'vault');
 const output = join(repository, 'artifacts');
 const token = randomBytes(32).toString('hex');
-const port = Number(process.env.wikiship_SMOKE_PORT ?? 29123);
+const port = 27126;
 const checks = [];
 const pageErrors = [];
-let electron, browser, page, client, bridgeClient;
+let electron, browser, page, client;
 const noteA = '# Notes A\n\nFirst paragraph selected for the agent.\n\nSecond paragraph selected for the agent.\n\nUnselected final paragraph.\n';
 const noteB = '# Architecture\n\n## Storage\nUse ordinary local files.\n\n## API\nPreserve this section.\n';
 const largeBeforeSuffix = '<b data-test="literal">Before final line</b>\n';
@@ -87,20 +86,14 @@ async function openChange(id) {
 try {
   await mkdir(profile, { recursive: true });
   await mkdir(join(vault, '.obsidian', 'plugins', 'wikiship'), { recursive: true });
-  await mkdir(join(vault, '.obsidian', 'plugins', 'obsidian-local-rest-api'), { recursive: true });
   await mkdir(join(vault, 'src'), { recursive: true });
   await mkdir(output, { recursive: true });
   await writeFile(join(profile, 'obsidian-1.13.7.asar'), gunzipSync(await readFile(join(downloads, 'obsidian-1.13.7.asar.gz'))));
   await json(join(profile, 'obsidian.json'), { vaults: { [randomBytes(8).toString('hex')]: { path: vault, ts: Date.now(), open: true } }, updateDisabled: true });
   await json(join(vault, '.obsidian', 'app.json'), { livePreview: true, defaultViewMode: 'source', alwaysUpdateLinks: false });
-  await json(join(vault, '.obsidian', 'community-plugins.json'), ['obsidian-local-rest-api', 'wikiship']);
-  await json(join(vault, '.obsidian', 'plugins', 'obsidian-local-rest-api', 'data.json'), {
-    apiKey: token, enableInsecureServer: true, enableSecureServer: false,
-    insecurePort: port, port: port + 1, bindingHost: '127.0.0.1',
-  });
+  await json(join(vault, '.obsidian', 'community-plugins.json'), ['wikiship']);
+  await json(join(vault, '.obsidian', 'plugins', 'wikiship', 'data.json'), { mcpToken: token, exclusions: ['node_modules', 'dist', 'build', 'coverage', 'vendor', '.cache'] });
   for (const file of ['main.js', 'manifest.json', 'styles.css']) await copyFile(join(repository, 'obsidian-plugin', file), join(vault, '.obsidian', 'plugins', 'wikiship', file));
-  await copyFile(join(downloads, 'rest-main.js'), join(vault, '.obsidian', 'plugins', 'obsidian-local-rest-api', 'main.js'));
-  await copyFile(join(downloads, 'rest-manifest.json'), join(vault, '.obsidian', 'plugins', 'obsidian-local-rest-api', 'manifest.json'));
   await writeFile(join(vault, 'A.md'), noteA); await writeFile(join(vault, 'B.md'), noteB);
   await writeFile(join(vault, 'large-review.md'), largeNote);
   await writeFile(join(vault, 'src', 'answer.ts'), 'export const answer = 41;\n');
@@ -112,32 +105,55 @@ try {
   electron = spawn(executablePath, ['--no-sandbox', '--remote-debugging-port=0', `--user-data-dir=${profile}`], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let launchError;
   electron.on('error', error => { launchError = error; });
-  electron.stderr.on('data', chunk => {
+  const detectDevtools = chunk => {
     const match = String(chunk).match(/DevTools listening on (ws:\/\/\S+)/);
     if (match) devtoolsUrl = match[1];
-  });
-  await waitFor(() => { if (launchError) throw launchError; return !!devtoolsUrl; }, 'Obsidian renderer DevTools', 30_000);
+  };
+  electron.stdout.on('data', detectDevtools);
+  electron.stderr.on('data', detectDevtools);
+  await waitFor(async () => {
+    if (launchError) throw launchError;
+    if (devtoolsUrl) return true;
+    try {
+      const [portText, browserPath] = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).trim().split('\n');
+      if (portText && browserPath) devtoolsUrl = `ws://127.0.0.1:${portText}${browserPath}`;
+    } catch {}
+    return !!devtoolsUrl;
+  }, 'Obsidian renderer DevTools', 30_000);
   browser = await chromium.connectOverCDP(devtoolsUrl);
   await waitFor(() => browser.contexts()[0]?.pages().length > 0, 'Obsidian window', 30_000);
   page = browser.contexts()[0].pages()[0];
   page.on('pageerror', error => pageErrors.push(redact(error.stack ?? error.message)));
-  page.on('console', message => { if (message.type() === 'error') pageErrors.push(redact(message.text())); });
+  page.on('console', message => { if (message.type() === 'error' && message.text().trim()) pageErrors.push(redact(message.text())); });
   await page.waitForFunction(() => typeof app !== 'undefined' && app.vault && app.workspace, { timeout: 30_000 });
   await page.setViewportSize({ width: 1440, height: 1000 });
   // Trust only this fresh throwaway fixture through Obsidian's own first-open
   // trust prompt; it then loads the two plugins declared in its configuration.
   await page.getByRole('button', { name: 'Trust author and enable plugins', exact: true }).click();
-  await page.waitForFunction(() => !!app.plugins.plugins.wikiship?.journal && !!app.plugins.plugins['obsidian-local-rest-api']?.requestHandler, { timeout: 30_000 });
-  // Local REST API opens its settings on first use. Close that real native
-  // popout before exercising editor commands in the main vault window.
-  await page.evaluate(() => app.setting.close());
+  await page.waitForFunction(() => !!app.plugins.plugins.wikiship?.journal, { timeout: 30_000 });
+  // CDP activation does not update Obsidian's activeWindow in xvfb. Focus the
+  // actual vault X window so Modal.open() targets the renderer under test.
   await page.bringToFront();
-  await page.evaluate(() => { window.focus(); window.electron?.remote?.getCurrentWindow().focus(); });
-  await waitFor(async () => { try { const r = await fetch(`http://127.0.0.1:${port}/`); return r.ok; } catch { return false; } }, 'local MCP listener', 30_000);
+  const windowTitle = await page.title();
+  const nativeWindowId = execFileSync('xdotool', ['search', '--onlyvisible', '--name', windowTitle], { encoding: 'utf8' }).trim().split(/\s+/).at(-1);
+  if (!nativeWindowId) throw new Error(`Could not find the native Obsidian window titled ${windowTitle}.`);
+  execFileSync('xdotool', ['windowfocus', '--sync', nativeWindowId]);
+  await page.evaluate(() => {
+    const nativeWindow = window.electron?.remote?.getCurrentWindow();
+    nativeWindow?.focus(); window.focus();
+    window.dispatchEvent(new Event('focus'));
+  });
+  await page.waitForFunction(() => window.electron?.remote?.getCurrentWindow().isFocused(), null, { timeout: 10_000 });
+  await waitFor(async () => { try { const r = await fetch(`http://127.0.0.1:${port}/health`); return r.ok; } catch { return false; } }, 'wikiship MCP listener', 30_000);
+  assert.equal((await fetch(`http://127.0.0.1:${port}/mcp`, { method: 'GET' })).status, 401);
   client = await connect();
   const listed = await client.listTools();
-  assert.equal(listed.tools.filter(tool => tool.name.startsWith('wikiship_')).length, 12);
-  passed('Native Obsidian loads wikiship and registers 12 tools on the real host');
+  assert.equal(listed.tools.filter(tool => tool.name.startsWith('wikiship_')).length, 17);
+  assert.equal(listed.tools.length, 23);
+  passed('Native Obsidian loads wikiship alone and exposes its standalone 23-tool MCP server');
+  assert.ok((await call('vault_list')).includes('A.md'));
+  assert.equal((await call('vault_read', { path: 'A.md' })).content, noteA);
+  passed('Standalone vault listing and reading use Obsidian APIs');
 
   await openNote('A.md');
   await page.evaluate(() => {
@@ -155,7 +171,7 @@ try {
   assert.equal(section.fileHash, editorState.fileHash);
   assert.equal(section.content, '## Storage\nUse ordinary local files.\n\n');
   const commands = await page.evaluate(() => Object.keys(app.commands.commands).filter(id => id.startsWith('wikiship:')));
-  assert.deepEqual(commands.sort(), ['open-changes', 'next-change', 'complete-changes', 'undo-changes', 'recover', 'reconnect-mcp'].map(id => `wikiship:${id}`).sort());
+  assert.deepEqual(commands.sort(), ['open-changes', 'next-change', 'complete-changes', 'undo-changes', 'recover', 'restart-mcp'].map(id => `wikiship:${id}`).sort());
   passed('Live selection and cursor section follow the active note; the six review and recovery commands are registered');
 
   const edited = await call('wikiship_patch_section', { path: 'B.md', expectedHash: section.fileHash,
@@ -165,9 +181,41 @@ try {
   await page.locator('.wikiship-gutter-marker').first().waitFor();
   await command('open-changes');
   await page.locator('.wikiship-file-group').first().waitFor();
-  assert.match(await page.locator('.wikiship-session-group').first().innerText(), /native-smoke/);
+  assert.match(await page.locator('.wikiship-session-group').first().innerText(), /isolated-vault/);
   // The queue entry opens the changed file at its affected location and shows the diff.
-  await page.locator('.wikiship-file-group').first().locator('.wikiship-file-link').click();
+  const reviewRow = page.locator('.wikiship-file-group').first().locator('.wikiship-file-row');
+  await reviewRow.evaluate(row => {
+    window.__wikishipSmokeRowClicks = 0;
+    window.__wikishipSmokeModalSeen = false;
+    window.__wikishipSmokeRowDisabledAtClick = row.disabled;
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('.wikiship-review-modal')) {
+        window.__wikishipSmokeModalSeen = true;
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    row.addEventListener('click', () => {
+      window.__wikishipSmokeRowClicks++;
+      window.__wikishipSmokeRowDisabledAtClick = row.disabled;
+    }, { once: true });
+  });
+  await reviewRow.click();
+  try { await page.locator('.wikiship-review-modal').waitFor({ timeout: 5000 }); }
+  catch (error) {
+    const state = await page.evaluate(() => ({
+      rowClicks: window.__wikishipSmokeRowClicks,
+      rowDisabledAtClick: window.__wikishipSmokeRowDisabledAtClick,
+      rowDisabled: document.querySelector('.wikiship-file-row')?.disabled,
+      modalEverSeen: window.__wikishipSmokeModalSeen,
+      modalCount: document.querySelectorAll('.wikiship-review-modal').length,
+      activeView: app.workspace.activeLeaf?.view?.getViewType?.(),
+      modalContainerCount: document.querySelectorAll('.modal-container').length,
+      modalCountAll: document.querySelectorAll('.modal').length,
+      notices: [...document.querySelectorAll('.notice')].map(notice => notice.textContent),
+    }));
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\nReview row diagnostic: ${JSON.stringify(state)}`);
+  }
   await page.locator('.wikiship-review-modal .wikiship-diff-added').first().waitFor();
   assert.match(await page.locator('.wikiship-diff').innerText(), /AI writes are recorded/);
   assert.match(await page.locator('.wikiship-diff').innerText(), /Use ordinary local files/);
@@ -191,7 +239,8 @@ try {
   await page.locator('.notice').filter({ hasText: 'Conflict' }).first().waitFor();
   assert.equal((await state()).operations.find(op => op.id === conflictOp.id).status, 'applied');
   assert.match(await page.evaluate(() => app.workspace.activeEditor.editor.getValue()), /Human typed afterward/);
-  await page.locator('.wikiship-review-modal').getByRole('button', { name: 'Approve session', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await page.locator('.wikiship-session-actions').getByRole('button', { name: 'Approve', exact: true }).click();
   await waitFor(async () => !(await state()).operations.some(op => op.id === conflictOp.id), 'conflicting change cleared');
   await page.keyboard.press('Escape');
   passed('A newer human editor change blocks undo and remains intact; the user can explicitly clear its record');
@@ -200,14 +249,15 @@ try {
   const moved = await call('wikiship_move_file', { path: 'AI-created.md', target: 'AI-moved.md', expectedHash: created.afterHash });
   const deleted = await call('wikiship_delete_file', { path: 'AI-moved.md', expectedHash: moved.afterHash });
   await command('open-changes');
-  const deletedGroup = page.locator('.wikiship-file-group').filter({ hasText: 'AI-created.md → AI-moved.md' });
-  await deletedGroup.locator('.wikiship-file-link').click();
+  const deletedGroup = page.locator('.wikiship-file-group').filter({ hasText: 'AI-created.md' });
+  await deletedGroup.locator('.wikiship-file-row').click();
   await page.locator('.wikiship-review-modal .wikiship-delete-notice').waitFor();
   await page.locator('.wikiship-review-modal summary').filter({ hasText: 'Operation history' }).click();
   assert.match(await page.locator('.wikiship-history').innerText(), /Created file.*Moved to AI-moved\.md.*Deleted file/s);
   assert.equal(deleted.status, 'pending-delete');
   assert.equal(await readFile(join(vault, 'AI-moved.md'), 'utf8'), 'Created through the real MCP host.\n');
-  await page.locator('.wikiship-review-modal').getByRole('button', { name: 'Approve session', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await page.locator('.wikiship-session-actions').getByRole('button', { name: 'Approve', exact: true }).click();
   await waitFor(async () => !(await state()).operations.some(op => op.id === deleted.id), 'delete session cleared');
   await page.keyboard.press('Escape');
   await assert.rejects(readFile(join(vault, 'AI-moved.md'), 'utf8'), { code: 'ENOENT' });
@@ -223,9 +273,9 @@ try {
     from: largeNote.length - largeBeforeSuffix.length, to: largeNote.length, content: largeAfterSuffix, agent: 'native-smoke' });
   await command('open-changes');
   const largeGroup = page.locator('.wikiship-file-group').filter({ hasText: 'large-review.md' });
-  await largeGroup.locator('.wikiship-file-link').click();
+  await largeGroup.locator('.wikiship-file-row').click();
   await page.locator('.wikiship-review-modal').waitFor();
-  await page.locator('.wikiship-review-modal summary').filter({ hasText: 'Recovery record' }).click();
+  await page.locator('.wikiship-review-modal summary').filter({ hasText: 'Recovery snapshots' }).click();
   await page.locator('.wikiship-recovery-operation summary').first().click();
   const beforePanel = page.locator('.wikiship-snapshot[data-wikiship-snapshot="before"]');
   const afterPanel = page.locator('.wikiship-snapshot[data-wikiship-snapshot="after"]');
@@ -252,28 +302,13 @@ try {
   await waitFor(async () => (await state()).operations.length === beforeReload.operations.length, 'persisted journal after reload');
   assert.deepEqual(JSON.parse(JSON.stringify((await state()).operations)), JSON.parse(JSON.stringify(beforeReload.operations)));
   assert.equal((await call('wikiship_get_editor_state')).activeFile, 'B.md');
-  passed('Plugin reload preserves operation history and re-registers live MCP tools');
-
-  await client.close(); client = undefined;
-  await page.evaluate(async () => { await app.plugins.disablePlugin('obsidian-local-rest-api'); await app.plugins.enablePlugin('obsidian-local-rest-api'); });
-  await waitFor(async () => { try { const r = await fetch(`http://127.0.0.1:${port}/`); return r.ok; } catch { return false; } }, 'reloaded host listener');
-  client = await connect();
-  assert.equal((await client.listTools()).tools.filter(tool => tool.name.startsWith('wikiship_')).length, 12);
+  assert.equal((await client.listTools()).tools.length, 23);
   assert.equal((await call('wikiship_get_editor_state')).activeFile, 'B.md');
-  passed('Host plugin reload reconnects wikiship registration on the same MCP endpoint');
+  passed('Plugin reload preserves operation history and restarts its standalone MCP server');
+  for (const name of ['command_execute', 'open_file', 'vault_write', 'wikiship_raw_write']) assert.equal((await client.callTool({ name, arguments: {} })).isError, true);
+  passed('Standalone MCP exposes only wikiship reviewable tools and its explicit read tools');
 
-  bridgeClient = new Client({ name: 'wikiship-native-stdio-acceptance', version: '1.0.0' });
-  await bridgeClient.connect(new StdioClientTransport({ command: process.execPath,
-    args: [join(repository, 'adapters', 'stdio-bridge.mjs')],
-    env: { wikiship_MCP_URL: `http://127.0.0.1:${port}/mcp/`, wikiship_API_KEY: token }, stderr: 'pipe' }));
-  assert.equal((await bridgeClient.listTools()).tools.length, 24);
-  const bridgeContext = await bridgeClient.callTool({ name: 'wikiship_get_editor_state' });
-  assert.ok(!bridgeContext.isError);
-  assert.equal(JSON.parse(bridgeContext.content.find(block => block.type === 'text').text).activeFile, 'B.md');
-  for (const name of ['command_execute', 'open_file', 'vault_write', 'wikiship_raw_write']) assert.equal((await bridgeClient.callTool({ name, arguments: {} })).isError, true);
-  passed('Actual stdio bridge lists 19 approved tools, reads live context, and refuses unjournaled write and command bypasses');
-
-  const versions = await page.evaluate(() => ({ obsidianRelease: '1.13.7', electron: process.versions.electron, wikiship: app.plugins.plugins.wikiship.manifest.version, localRestApi: app.plugins.plugins['obsidian-local-rest-api'].manifest.version }));
+  const versions = await page.evaluate(() => ({ obsidianRelease: '1.13.7', electron: process.versions.electron, wikiship: app.plugins.plugins.wikiship.manifest.version }));
   await json(join(output, 'obsidian-acceptance.json'), { ok: true, versions, checks, pageErrors, fixture: root });
   await rm(join(output, 'obsidian-acceptance-failure.png'), { force: true });
   console.log(JSON.stringify({ ok: true, checks: checks.length, versions, screenshot: join(output, 'obsidian-acceptance.png') }));
@@ -288,7 +323,6 @@ try {
   process.exitCode = 1;
 } finally {
   if (client) await client.close().catch(() => {});
-  if (bridgeClient) await bridgeClient.close().catch(() => {});
   if (browser) await browser.close().catch(() => {});
   if (electron && electron.exitCode === null) {
     electron.kill('SIGTERM');

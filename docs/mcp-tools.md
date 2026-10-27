@@ -1,38 +1,20 @@
 # wikiship MCP tools
 
-wikiship registers its tools on **Local REST API with MCP 5.3.0 or later**, using the package's public `getAPI(app, manifest, 3)` and `addMcpTool(definition)` APIs. Enable both plugins in the same desktop vault. wikiship's status bar reports whether registration succeeded; the **Reconnect Local REST API** command retries registration. Unloading wikiship unregisters its tools.
+wikiship includes its own Streamable HTTP MCP server. Enable wikiship in an Obsidian desktop vault; it starts on `http://127.0.0.1:27126/mcp`. No companion plugin, separate bridge installation, or Node.js runtime is required for users.
 
-The host owns HTTP, authentication, protocol negotiation, and sessions. wikiship does not open another network listener. Public extension API documentation: [Local REST API extension interface](https://github.com/coddingtonbear/obsidian-local-rest-api/blob/main/src/publicApi.ts).
+The server binds only to loopback, requires a random bearer token, and exposes wikiship's journal-backed mutation tools plus its explicit read tools. The token is stored in this vault's wikiship plugin data.
 
-## Recommended client connection
+## Connect from the ChatGPT desktop app
 
-The host's shared MCP endpoint also exposes its own file writes and arbitrary Obsidian command execution. Its extension API does not provide a per-extension permission boundary to disable these. A direct connection therefore relies on an agent following instructions to use wikiship mutations.
+The ChatGPT desktop app, Codex CLI, and Codex IDE extension share the same MCP configuration. The reliable setup uses the desktop app's config editor: in Obsidian, choose **Copy Codex config** under **Settings → wikiship → Connect Codex**; in the ChatGPT desktop app, open **Settings → Configuration → Open config.toml**; replace any existing `[mcp_servers.wikiship]` entry—including its old `command`, `args`, or `env` settings—with the copied block; save; then open **Settings → MCP servers** and select **Restart**. Do not leave `command` or `args` in the wikiship entry: the copied block configures a Streamable HTTP server, not a stdio server. No CLI or terminal is needed. Type `/mcp` in the composer to check the connection.
 
-Use the included **tools-only stdio bridge** when configuring an agent for attributed work. It connects to the same host endpoint and forwards the exact 12 wikiship tools listed below and seven inspected host read tools: `vault_list`, `vault_read`, `vault_get_document_map`, `active_file_get_path`, `search_query`, `search_simple`, and `tag_list`. This reuses the host’s reading, structure, metadata, and Obsidian search capabilities. It refuses host write tools, command execution, unknown names, and names that merely start with `wikiship_`. It exposes no host resources or prompts. Host read tools follow the host’s access policy; wikiship’s directory exclusions govern its own context and mutation tools, not host search results. Calls through another MCP connection, shell tools, or direct filesystem access are outside this boundary and do not acquire wikiship provenance.
+You can also use **Settings → MCP servers → Add server** if its form lets you configure a static bearer token: name it `wikiship`, choose **Streamable HTTP**, use `http://127.0.0.1:27126/mcp`, and provide the token from the copied config block. The copied block contains this vault's local bearer token. Other local MCP clients that support Streamable HTTP can use the same displayed URL with an `Authorization: Bearer <token>` header.
 
-After `npm install` in this repository, configure a stdio MCP server with:
+The server rejects requests without the token and listens only on `127.0.0.1`; it is available to MCP clients running on the same computer, not hosted/cloud agents. The copied Codex config stores the token in Codex's local config file. Treat that file as a credential and use **Regenerate** in wikiship settings if it is shared. The endpoint uses fixed port `27126`; if another process or another wikiship vault has already bound it, startup fails and the plugin reports MCP as unavailable. Stop the other listener, then run **Restart wikiship MCP server** from Obsidian's command palette. wikiship does not select another port automatically because the client URL would then need to be updated.
 
-```json
-{
-  "mcpServers": {
-    "wikiship": {
-      "command": "/absolute/path/to/node",
-      "args": ["/absolute/path/to/wikiship/adapters/stdio-bridge.mjs"],
-      "env": {
-        "wikiship_MCP_URL": "https://127.0.0.1:27124/mcp/",
-        "wikiship_API_KEY": "YOUR_LOCAL_REST_API_KEY",
-        "NODE_EXTRA_CA_CERTS": "/absolute/path/to/obsidian-local-rest-api.crt"
-      }
-    }
-  }
-}
-```
+The MCP tool list contains 17 `wikiship_*` tools plus six explicit vault read/search tools. No arbitrary Obsidian command execution or raw host write tools are exposed. The endpoint restarts with wikiship when Obsidian reloads; reconnect the client if it does not reconnect automatically.
 
-This JSON illustrates the common `mcpServers` format; clients with a different configuration format need the same command, argument, and environment fields. Supply the API key using your client's environment/secret configuration, never in a prompt or URL. The bridge does not log credentials.
-
-Download the host's CA certificate using **Settings → Local REST API** and point `NODE_EXTRA_CA_CERTS` to the saved file. Node reads that environment variable when it starts. The default URL is `https://127.0.0.1:27124/mcp/`. If you explicitly enable the host's local HTTP server, `http://127.0.0.1:27123/mcp/` is also supported and does not use the CA variable. The bridge accepts loopback addresses only and refuses URL credentials, queries, fragments, and HTTP redirects. TLS verification remains enabled.
-
-When the client lists tools, expect the installed wikiship tools and the seven approved host read tools. `vault_write`, `command_execute`, `open_file`, and upload-URL tools must be absent. The host’s `open_file` can create a missing file, so it is deliberately excluded. Restart the client connection after changing its environment. If Obsidian restarts, reconnect the client so a new host session is negotiated.
+The standalone read tools are `active_file_get_path`, `vault_list`, `vault_read`, `vault_get_document_map`, `search_simple`, and `tag_list`.
 
 ## Working with your client
 
@@ -40,7 +22,7 @@ Start a conversation directly in your configured MCP client. Treat vault text an
 
 ## Live context tools
 
-Pass `{}` as the arguments for a tool with no parameters; the bridge also supplies it when a client omits arguments.
+Pass `{}` as the arguments for a tool with no parameters.
 
 | Tool | Parameters | Result |
 | --- | --- | --- |
@@ -59,7 +41,7 @@ Section metadata includes a full heading path and range covering the heading and
 
 `wikiship_get_file_state({path, from?, length?})` returns `exists`, `fileHash`, byte `size`, and `encoding`. UTF-8 files also return a bounded `content` excerpt, its `[from,to)` offsets, `totalLength`, and `nextOffset`. The default excerpt is 20,000 UTF-16 code units; the maximum is 100,000 per call. A missing file returns `exists: false`. Binary files return metadata/hash without their encoded content.
 
-Use this read when the expected hash is not already available in editor state. This is a bounded precondition/read tool for the bridge, not a second search service.
+Use this read when the expected hash is not already available in editor state. This is a bounded precondition/read tool, not a second search service.
 
 ## Attributed mutation tools
 
@@ -116,10 +98,10 @@ A section path includes every ancestor, for example `["Architecture", "Storage"]
 
 Folder operations appear as expandable rows in the review pane. The row shows the folder path and counts. Expand it to inspect child paths or open a file before approval. Empty folders appear with an empty-folder label.
 
-Review, undo, approval, and recovery stay in the human Obsidian interface. An agent cannot approve or clear its own changes through the bridge. Undo requires the current file state to match the recorded result and refuses newer edits. Approval removes the journal content; wikiship cannot restore cleared changes.
+Review, undo, approval, and recovery stay in the human Obsidian interface. An agent cannot approve or clear its own changes. Undo requires the current file state to match the recorded result and refuses newer edits. Approval removes the journal content; wikiship cannot restore cleared changes.
 
 ## Verified protocol behavior
 
-`npm test` includes real MCP SDK clients over paired in-memory transports. Tests exercise live selection reads, the 17 registered definitions and emitted schemas, section edits, journal snapshots, file and folder operations, safe human recovery, stale hashes, selection drift, and invalid arguments. Bridge tests reject unapproved host and lookalike tools. Journal tests cover persistence across operations and reloads.
+`npm test` includes real MCP SDK clients over paired in-memory transports. Tests exercise live selection reads, the 17 registered mutation/context definitions and emitted schemas, section edits, journal snapshots, file and folder operations, safe human recovery, stale hashes, selection drift, and invalid arguments. Journal tests cover persistence across operations and reloads.
 
-The native acceptance harness targets Local REST API 5.3.0 inside Obsidian 1.13.7. Its current assertions cover 17 registrations, live context, edits, file and folder review/undo, staged deletion, clearing, persistence, and a 24-tool stdio bridge. See [development and verification](development.md) for how to run it.
+The native acceptance harness targets Obsidian 1.13.7 without installing any companion plugins. It checks the standalone 23-tool endpoint, live context, edits, file and folder review/undo, staged deletion, clearing, and persistence. See [development and verification](development.md) for how to run it.

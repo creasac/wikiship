@@ -16,12 +16,17 @@ vi.mock('obsidian', () => ({
   Plugin: class {
     constructor(readonly app: App, readonly manifest: PluginManifest) {}
     async loadData() { return null; }
+    async saveData() {}
     register() {} registerView() {} registerEditorExtension() {} registerEvent() {}
     addRibbonIcon() {} addCommand() {} addSettingTab() {}
     addStatusBarItem() { return { setText() {}, addClass() {}, addEventListener() {}, setAttribute() {} }; }
   },
 }));
-vi.mock('obsidian-local-rest-api', () => ({ getAPI: vi.fn() }));
+vi.mock('../src/mcp/server', () => ({ DEFAULT_MCP_PORT: 27126, WikishipMcpServer: class {
+  constructor(readonly app: unknown, readonly context: unknown, readonly journal: unknown, readonly policy: unknown, readonly port: number, readonly token: string) {}
+  async start() {}
+  async close() {}
+} }));
 vi.mock('../src/provenance/obsidian-files', () => ({ ObsidianFiles: class {
   private files = new Map<string, Snapshot>();
   async read(path: string) { return this.files.get(path) ?? null; }
@@ -31,7 +36,6 @@ vi.mock('../src/provenance/obsidian-files', () => ({ ObsidianFiles: class {
 vi.mock('../src/context/editor', () => ({ EditorContext: class {} }));
 vi.mock('../src/review/views', () => ({ ChangesView: class {}, FileReviewModal: class {}, RevertFileModal: class {}, CHANGES_VIEW_TYPE: 'changes', nextUnreviewed: vi.fn() }));
 vi.mock('../src/review/gutter', () => ({ createReviewExtension: () => ({ extension: [], destroy() {} }) }));
-vi.mock('../src/mcp/tools', () => ({ registerTools: vi.fn() }));
 
 const roots: string[] = [];
 function gate() { let release!: () => void; const promise = new Promise<void>(resolve => { release = resolve; }); return { promise, release }; }
@@ -67,7 +71,7 @@ describe('plugin journal lifecycle', () => {
         { id: 'complete-changes', name: 'Approve all changes' },
         { id: 'undo-changes', name: "Undo all machine minds' changes" },
         { id: 'recover', name: 'Recover interrupted operations' },
-        { id: 'reconnect-mcp', name: 'Reconnect Local REST API' },
+        { id: 'restart-mcp', name: 'Restart wikiship MCP server' },
       ]);
     } finally { instance.onunload(); await waitForJournalShutdown(directory); }
   });

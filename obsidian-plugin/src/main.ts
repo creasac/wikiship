@@ -1,5 +1,5 @@
-import { FileSystemAdapter, Notice, Plugin, PluginSettingTab, Setting, type App, type EventRef } from 'obsidian';
-import { getAPI, type LocalRestApiPublicApi } from 'obsidian-local-rest-api';
+import { randomBytes } from 'node:crypto';
+import { FileSystemAdapter, Notice, Plugin, PluginSettingTab, Setting, type App } from 'obsidian';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Journal } from './provenance/journal';
@@ -10,25 +10,28 @@ import { ObsidianFiles } from './provenance/obsidian-files';
 import { EditorContext } from './context/editor';
 import { ChangesView, FileReviewModal, CHANGES_VIEW_TYPE, nextChange } from './review/views';
 import { createReviewExtension } from './review/gutter';
-import { registerTools } from './mcp/tools';
+import { codexConfig, DEFAULT_MCP_PORT, WikishipMcpServer } from './mcp/server';
 
-interface Settings { exclusions: string[]; }
+interface Settings { exclusions: string[]; mcpToken: string; }
 
 export default class wikiship extends Plugin {
   journal!: Journal;
   context!: EditorContext;
   private store?: AtomicStateStore;
-  private api?: LocalRestApiPublicApi;
+  private mcpServer?: WikishipMcpServer;
   private stopped = false;
   private loading: Promise<void> = Promise.resolve();
   private connection?: HTMLElement;
-  settings: Settings = { exclusions: [...DEFAULT_EXCLUSIONS] };
+  settings: Settings = { exclusions: [...DEFAULT_EXCLUSIONS], mcpToken: '' };
 
   onload() { return this.loading = this.start(); }
   private async start() {
     try {
       const saved = await this.loadData() as Partial<Settings> | null;
       if (Array.isArray(saved?.exclusions) && saved.exclusions.every(e => typeof e === 'string' && e && !e.includes('/'))) this.settings.exclusions = saved.exclusions;
+      this.settings.mcpToken = typeof saved?.mcpToken === 'string' && /^[a-f0-9]{64}$/.test(saved.mcpToken)
+        ? saved.mcpToken : randomBytes(32).toString('hex');
+      await this.saveData(this.settings);
       const adapter = this.app.vault.adapter;
       if (!(adapter instanceof FileSystemAdapter)) throw new Error('wikiship v1 requires a local desktop vault.');
       const root = await realpath(adapter.getBasePath());
@@ -69,16 +72,20 @@ export default class wikiship extends Plugin {
         // write-ahead save and its final editor-target check.
         if (hasReviewable && !hasReviewableChanges) this.run(() => this.openView(CHANGES_VIEW_TYPE));
         hasReviewableChanges = hasReviewable;
-        this.connection?.setText(count ? `wikiship · ${count} change${count === 1 ? '' : 's'} · review` : this.api ? 'wikiship · MCP ready' : 'wikiship · enable Local REST API');
+        this.connection?.setText(count ? `wikiship · ${count} change${count === 1 ? '' : 's'} · review` : this.mcpServer ? 'wikiship · MCP ready' : 'wikiship · MCP unavailable');
       }));
       this.addRibbonIcon(wikishipIconId, 'wikiship', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
       this.addCommands();
       this.addSettingTab(new wikishipSettings(this.app, this));
-      this.registerEvent(this.app.workspace.on('obsidian-local-rest-api:loaded', () => this.connectMcp()));
-      this.app.workspace.onLayoutReady(() => {
-        if (this.stopped) return;
-        this.connectMcp();
-      });
+      try {
+        this.mcpServer = new WikishipMcpServer(this.app, this.context, this.journal, files.policy, DEFAULT_MCP_PORT, this.settings.mcpToken);
+        await this.mcpServer.start();
+        this.connection.setText(this.journal.state.operations.length ? `wikiship · ${this.journal.state.operations.length} changes · review` : 'wikiship · MCP ready');
+      } catch (error) {
+        this.mcpServer = undefined;
+        this.connection.setText('wikiship · MCP unavailable');
+        new Notice(`wikiship MCP server could not start: ${message(error)}. See Settings → wikiship for the connection details.`, 15000);
+      }
     } catch (error) {
       new Notice(`wikiship could not start: ${message(error)}`, 15000);
       await this.journal?.close();
@@ -96,18 +103,21 @@ export default class wikiship extends Plugin {
     this.addCommand({ id: 'complete-changes', name: 'Approve all changes', callback: () => this.run(() => this.journal.completeAll()) });
     this.addCommand({ id: 'undo-changes', name: "Undo all machine minds' changes", callback: () => this.run(() => this.journal.undoAll()) });
     this.addCommand({ id: 'recover', name: 'Recover interrupted operations', callback: () => this.run(() => this.journal.recover()) });
-    this.addCommand({ id: 'reconnect-mcp', name: 'Reconnect Local REST API', callback: () => this.connectMcp() });
+    this.addCommand({ id: 'restart-mcp', name: 'Restart wikiship MCP server', callback: () => this.restartMcp() });
   }
-  private connectMcp() {
+  async restartMcpFromSettings() { return this.restartMcp(); }
+  private async restartMcp() {
     if (this.stopped || !this.journal) return;
-    this.api?.unregister(); this.api = undefined;
+    await this.mcpServer?.close();
     try {
-      this.api = getAPI(this.app, this.manifest, 3);
-      if (this.api) registerTools(this.api, this.context, this.journal);
-      const pending = this.journal.state.operations.length;
-      this.connection?.setText(pending ? `wikiship · ${pending} change${pending === 1 ? '' : 's'} · review` : this.api ? 'wikiship · MCP ready' : 'wikiship · enable Local REST API');
+      const root = await realpath((this.app.vault.adapter as FileSystemAdapter).getBasePath());
+      this.mcpServer = new WikishipMcpServer(this.app, this.context, this.journal,
+        new PathPolicy(root, this.app.vault.configDir, this.settings.exclusions), DEFAULT_MCP_PORT, this.settings.mcpToken);
+      await this.mcpServer.start();
+      this.connection?.setText('wikiship · MCP ready');
+      new Notice('wikiship MCP server is ready.');
     } catch (error) {
-      this.api?.unregister(); this.api = undefined;
+      this.mcpServer = undefined;
       this.connection?.setText('wikiship · MCP unavailable');
       new Notice(`wikiship MCP: ${message(error)}`, 10000);
     }
@@ -120,11 +130,13 @@ export default class wikiship extends Plugin {
   onunload() {
     if (this.stopped) return;
     this.stopped = true;
-    this.api?.unregister(); this.api = undefined;
     // Reject new mutations immediately. Also wait for any in-flight startup so
     // it cannot acquire a lock after cleanup; start() cancels further setup.
     const drained = this.journal?.close() ?? Promise.resolve();
-    const shutdown = this.loading.catch(() => undefined).then(() => drained).then(() => this.store?.close());
+    const shutdown = this.loading.catch(() => undefined).then(async () => {
+      await Promise.allSettled([drained, this.mcpServer?.close() ?? Promise.resolve()]);
+      await this.store?.close();
+    });
     // Obsidian does not await this synchronous hook. Publish cleanup before it
     // returns so a replacement instance waits before attempting the writer lock.
     const pending = this.store ? trackJournalShutdown(this.store.directory, shutdown) : shutdown;
@@ -138,15 +150,25 @@ class wikishipSettings extends PluginSettingTab {
   display() {
     this.containerEl.empty();
     this.containerEl.createEl('h2', { text: 'wikiship' });
-    this.containerEl.createEl('p', { text: 'Connect through Local REST API 5.3.0 or later. Use the wikiship MCP bridge to restrict agents to tracked mutations. Pending changes and their before/after content stay in this vault’s plugin data until you undo or approve them.' });
+    this.containerEl.createEl('p', { text: 'wikiship runs its own authenticated MCP server on this computer. No companion Obsidian plugin, Node.js install, or bridge is required. Pending changes and their before/after content stay in this vault’s plugin data until you undo or approve them.' });
+    new Setting(this.containerEl).setName('Connect Codex').setDesc(`MCP server: http://127.0.0.1:${DEFAULT_MCP_PORT}/mcp. Copy this block into your Codex config.toml. It contains this vault's local access token.`)
+      .addButton(button => button.setButtonText('Copy Codex config').onClick(async () => {
+        try {
+          await navigator.clipboard.writeText(codexConfig(`http://127.0.0.1:${DEFAULT_MCP_PORT}/mcp`, this.plugin.settings.mcpToken));
+          new Notice('Codex config copied. Paste it into ~/.codex/config.toml, then restart or reconnect Codex.');
+        } catch { new Notice('Could not copy the Codex config.'); }
+      }));
+    new Setting(this.containerEl).setName('MCP access token').setDesc('Stored in this vault’s wikiship plugin data. Regenerate it if you shared the Codex configuration with someone else.')
+      .addButton(button => button.setButtonText('Regenerate').onClick(async () => {
+        this.plugin.settings.mcpToken = randomBytes(32).toString('hex');
+        await this.plugin.saveData(this.plugin.settings);
+        await this.plugin.restartMcpFromSettings();
+        new Notice('wikiship token regenerated. Copy the updated Codex config.');
+      }));
     new Setting(this.containerEl).setName('Excluded directory names').setDesc('One name per line. Applies only to wikiship reads and writes. Obsidian settings are unchanged. Reload wikiship after editing.').addTextArea(input => input.setValue(this.plugin.settings.exclusions.join('\n')).onChange(async value => {
       const exclusions = value.split('\n').map(line => line.trim()).filter(Boolean);
       if (exclusions.some(name => name.includes('/') || name.includes('\\') || name === '.' || name === '..')) return;
-      this.plugin.settings = { exclusions }; await this.plugin.saveData(this.plugin.settings);
+      this.plugin.settings = { ...this.plugin.settings, exclusions }; await this.plugin.saveData(this.plugin.settings);
     }));
   }
-}
-
-declare module 'obsidian' {
-  interface Workspace { on(name: 'obsidian-local-rest-api:loaded', callback: () => void, ctx?: unknown): EventRef; }
 }

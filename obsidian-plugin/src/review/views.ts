@@ -329,6 +329,12 @@ export class FileReviewModal extends Modal {
     if (group.operations.some(op => op.kind === 'delete' && op.status === 'pending-delete')) {
       root.createEl('p', { cls: 'wikiship-delete-notice', text: 'The file stays in your vault until approval. Approval moves it to trash. Undo cancels the deletion.' });
     }
+    if (group.operations.length > 1) {
+      const history = root.createEl('details', { cls: 'wikiship-history' });
+      history.createEl('summary', { text: 'Operation history' });
+      const entries = history.createEl('ol');
+      for (const operation of group.operations) entries.createEl('li', { text: operationLabel(operation) });
+    }
     const toolbar = root.createDiv({ cls: 'wikiship-review-toolbar' });
     const toolbarStart = toolbar.createDiv({ cls: 'wikiship-review-toolbar-start' });
     const changeControls = toolbar.createDiv({ cls: 'wikiship-review-toolbar-changes' });
