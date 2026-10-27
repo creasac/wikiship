@@ -10,9 +10,10 @@ async function root() { const path = await mkdtemp(join(tmpdir(), 'wikiship-stor
 describe('path policy', () => {
   it('rejects traversal, absolute paths, configuration, and generated directories', async () => {
     const dir = await root(), policy = new PathPolicy(dir, '.custom-config');
-    for (const path of ['../escape', '/tmp/escape', 'C:\\file', 'a//b', './a', 'a/../b', 'file:stream', '.git/config', '.obsidian/data', '.custom-config/data', 'nested/node_modules/a.js', 'dist/a', 'dir./a']) expect(() => policy.validate(path), path).toThrow();
+    for (const path of ['../escape', '/tmp/escape', 'C:\\file', 'a//b', './a', 'a/../b', 'file:stream', '.git/config', '.custom-config/data', 'nested/node_modules/a.js', 'dist/a', 'dir./a']) expect(() => policy.validate(path), path).toThrow();
+    expect(() => policy.validate('.obsidian/data')).not.toThrow();
     expect(await policy.check('src/main.ts')).toBe(join(dir, 'src/main.ts'));
-    for (const path of ['nested/.git/config', 'nested/.Git', 'nested/.obsidian/config', 'nested/.trash/deleted.md', 'nested/.custom-config/data']) expect(() => policy.validate(path), path).toThrow('excluded');
+    for (const path of ['nested/.git/config', 'nested/.Git', 'nested/.trash/deleted.md', 'nested/.custom-config/data']) expect(() => policy.validate(path), path).toThrow('excluded');
   });
   it('rejects leaf and ancestor symlinks, including broken links', async () => {
     const dir = await root(), outside = await root(), policy = new PathPolicy(dir, '.obsidian');

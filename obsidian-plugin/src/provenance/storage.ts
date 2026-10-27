@@ -11,15 +11,18 @@ function descendant(root: string, path: string): string {
   if (!result || result === '..' || result.startsWith('..' + sep) || isAbsolute(result)) throw new Error('Path is outside the vault.');
   return result;
 }
+function hasInvalidPathCharacter(path: string): boolean {
+  return path.includes(':') || [...path].some(character => character.charCodeAt(0) <= 0x1f);
+}
 
 /** wikiship's path policy; it never changes Obsidian's own visibility settings. */
 export class PathPolicy {
   constructor(readonly root: string, private configDir: string, private exclusions = DEFAULT_EXCLUSIONS) {}
   validate(path: string): string {
-    if (!path || path.includes('\\') || /[\x00-\x1f:]/.test(path) || path.startsWith('/') || win32.isAbsolute(path)) throw new Error('Use a vault-relative path with forward slashes.');
+    if (!path || path.includes('\\') || hasInvalidPathCharacter(path) || path.startsWith('/') || win32.isAbsolute(path)) throw new Error('Use a vault-relative path with forward slashes.');
     const parts = path.split('/');
     if (parts.some(p => !p || p === '.' || p === '..' || p.endsWith('.') || p.endsWith(' '))) throw new Error('Path contains an invalid segment.');
-    const internal = [this.configDir, '.obsidian', '.git', '.trash'];
+    const internal = [this.configDir, '.git', '.trash'];
     const lower = path.toLowerCase();
     const reserved = internal.filter(p => !p.includes('/'));
     if (internal.some(p => lower === p.toLowerCase() || lower.startsWith(p.toLowerCase() + '/')) ||

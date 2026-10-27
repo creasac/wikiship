@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { Journal } from '../provenance/journal';
 import { folderEntries, type Operation } from '../model';
@@ -13,8 +13,8 @@ export interface McpToolDefinition {
 
 export interface EditorTarget { path: string; from: number; to: number; fileHash: string; }
 export interface wikishipContext {
-  getEditorState(): unknown | Promise<unknown>;
-  getSelection(): unknown | Promise<unknown>;
+  getEditorState(): Promise<unknown>;
+  getSelection(): Promise<unknown>;
   selectionTarget(): Promise<EditorTarget>;
   cursorTarget(): Promise<EditorTarget>;
   sectionTarget(headingPath?: string[]): Promise<EditorTarget>;

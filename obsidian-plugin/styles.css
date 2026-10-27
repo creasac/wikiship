@@ -23,7 +23,7 @@
 .wikiship-approval-hint { margin: 0 0 var(--size-4-3); }
 .wikiship-file-row { display: flex; width: 100%; flex-wrap: wrap; align-items: baseline; justify-content: flex-start; gap: var(--size-4-2); cursor: pointer; }
 .wikiship-text-button.wikiship-file-row { padding: var(--size-4-2); text-align: left; }
-.wikiship-text-button.wikiship-file-row:hover { background: var(--background-modifier-hover) !important; text-decoration: none; }
+button.wikiship-text-button.wikiship-file-row:hover { background: var(--background-modifier-hover); text-decoration: none; }
 .wikiship-file-link { display: block; min-width: 0; flex: 1 1 12em; text-align: left; }
 .wikiship-path-stack { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; overflow-wrap: anywhere; }
 .wikiship-move-arrow { color: var(--text-muted); }
@@ -39,8 +39,8 @@
 .wikiship-folder-child:hover { text-decoration: none; }
 .wikiship-review-file-title { min-width: 0; font-size: var(--font-ui-large); font-weight: var(--font-semibold); }
 .wikiship-recovery-operation { margin: var(--size-4-2) 0; }
-.wikiship-text-button { background: transparent !important; box-shadow: none !important; border: none; padding: 0; height: auto; text-align: left; white-space: normal; overflow-wrap: anywhere; color: var(--text-normal); }
-.wikiship-text-button:hover { color: var(--text-accent); text-decoration: underline; }
+button.wikiship-text-button { background: transparent; box-shadow: none; border: none; padding: 0; height: auto; text-align: left; white-space: normal; overflow-wrap: anywhere; color: var(--text-normal); }
+button.wikiship-text-button:hover { color: var(--text-accent); text-decoration: underline; }
 .wikiship-text-button:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 3px; }
 .wikiship-status { display: inline-block; margin-left: var(--size-4-2); font-size: var(--font-ui-smaller); color: var(--text-muted); }
 .wikiship-status-uncertain, .wikiship-warning { color: var(--text-warning); }
@@ -69,8 +69,8 @@
 .wikiship-source { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow-y: auto; font-size: var(--font-smaller); background: var(--background-secondary); padding: var(--size-4-2); }
 .wikiship-hash { font-size: var(--font-ui-smaller); color: var(--text-faint); overflow-wrap: anywhere; margin: var(--size-4-2) 0; }
 .cm-gutter.wikiship-gutter { width: 24px; }
-.wikiship-gutter-marker { display: flex; align-items: center; justify-content: center; border: 0; border-radius: 0; box-shadow: none !important; background: transparent !important; padding: 0; width: 24px; min-width: 24px; height: 1.4em; line-height: 1; cursor: pointer; font-size: 16px; font-weight: 700; color: var(--text-accent); opacity: .75; }
-.wikiship-gutter-marker:hover, .wikiship-gutter-marker:focus-visible { opacity: 1; }
+button.wikiship-gutter-marker { display: flex; align-items: center; justify-content: center; border: 0; border-radius: 0; box-shadow: none; background: transparent; padding: 0; width: 24px; min-width: 24px; height: 1.4em; line-height: 1; cursor: pointer; font-size: 16px; font-weight: 700; color: var(--text-accent); opacity: .75; }
+button.wikiship-gutter-marker:hover, button.wikiship-gutter-marker:focus-visible { opacity: 1; }
 .wikiship-gutter-inserted { font-size: 20px; font-weight: 900; }
 .wikiship-gutter-deleted { font-size: 22px; font-weight: 900; }
 .wikiship-gutter-modified { font-size: 14px; transform: translateY(1px); }

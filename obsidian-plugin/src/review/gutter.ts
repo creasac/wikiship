@@ -10,7 +10,8 @@ class ChangeMarker extends GutterMarker {
   constructor(readonly locations: ChangeLocation[]) { super(); }
   eq(other: ChangeMarker) { return this.locations.map(l => l.operationId + l.kind).join() === other.locations.map(l => l.operationId + l.kind).join(); }
   toDOM(view: EditorView) {
-    const marker = view.dom.ownerDocument.createElement('button');
+    const marker = view.dom.createEl('button');
+    marker.detach();
     const first = this.locations[0]!;
     marker.className = `wikiship-gutter-marker wikiship-gutter-${first.kind}`;
     marker.type = 'button';

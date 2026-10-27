@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 export const hash = (text: string | Uint8Array) => createHash('sha256').update(text).digest('hex');
 export const id = () => randomUUID();
@@ -95,7 +95,7 @@ export const stateSchema = z.object({
 });
 export type State = z.infer<typeof stateSchema>;
 export const emptyState = (): State => ({ version: 1, operations: [] });
-export interface StateStore { load(): Promise<unknown | null>; save(state: State): Promise<void>; }
+export interface StateStore { load(): Promise<unknown>; save(state: State): Promise<void>; }
 export interface WorkspaceFiles {
   read(path: string): Promise<Snapshot | null>;
   readFolder(path: string): Promise<Snapshot | null>;

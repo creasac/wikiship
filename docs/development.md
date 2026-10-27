@@ -32,6 +32,10 @@ The tests cover:
 
 Unit tests use a small Obsidian stub because the npm package contains public declarations rather than the desktop runtime. They do not claim to prove desktop integration by themselves.
 
+## Publishing a release
+
+Update the version in both manifests and package files, add its minimum host version to `versions.json`, commit the changes, and push a matching `vMAJOR.MINOR.PATCH` tag. GitHub Actions builds the plugin, creates a GitHub release with `main.js`, `manifest.json`, and `styles.css`, and publishes provenance attestations for `main.js` and `styles.css`. Attestations require a public repository on GitHub Free, Pro, or Team, or an eligible GitHub Enterprise plan.
+
 ## Native acceptance harness
 
 `scripts/obsidian-smoke.mjs` runs against the real Obsidian application using a fresh temporary vault/profile and an SDK Streamable HTTP MCP client. It does not use a personal vault or edit the installed app. It writes a verification report and screenshot under `artifacts/`.

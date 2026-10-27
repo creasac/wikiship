@@ -3,6 +3,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import type { App } from 'obsidian';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker';
 import type { Journal } from '../provenance/journal';
 import type { PathPolicy } from '../provenance/storage';
 import { createToolDefinitions, type wikishipContext } from './tools';
@@ -10,6 +11,8 @@ import { createReadToolDefinitions } from './read-tools';
 
 const HOST = '127.0.0.1';
 export const DEFAULT_MCP_PORT = 27126;
+const MAX_TOOL_INPUT_ELEMENTS = 64;
+const MAX_MCP_REQUEST_BYTES = 16 * 1024 * 1024;
 
 function authorized(header: string | undefined, token: string) {
   if (!header?.startsWith('Bearer ')) return false;
@@ -31,7 +34,7 @@ export class WikishipMcpServer {
   private readonly active = new Set<{ transport: StreamableHTTPServerTransport; mcp: McpServer }>();
 
   constructor(private app: App, private context: wikishipContext, private journal: Journal, private policy: PathPolicy,
-    readonly port: number, private token: string) {}
+    readonly port: number, private token: string, private version: string) {}
 
   async start() {
     if (this.http) return;
@@ -70,7 +73,10 @@ export class WikishipMcpServer {
   }
 
   private async handleMcpRequest(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) {
-    const mcp = new McpServer({ name: 'wikiship', version: '0.2.0' });
+    const mcp = new McpServer({ name: 'wikiship', version: this.version }, {
+      maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS,
+      jsonSchemaValidator: new CfWorkerJsonSchemaValidator(),
+    });
     for (const definition of [...createReadToolDefinitions(this.app, this.journal, this.policy), ...createToolDefinitions(this.context, this.journal)]) {
       mcp.registerTool(definition.name, {
         description: definition.description,
@@ -78,7 +84,11 @@ export class WikishipMcpServer {
         annotations: definition.annotations,
       }, args => definition.callback(args));
     }
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+      maxRequestBodySize: MAX_MCP_REQUEST_BYTES,
+    });
     const active = { transport, mcp };
     this.active.add(active);
     const cleanup = () => {

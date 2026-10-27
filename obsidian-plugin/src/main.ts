@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { FileSystemAdapter, Notice, Plugin, PluginSettingTab, Setting, type App } from 'obsidian';
+import { FileSystemAdapter, Notice, Plugin, PluginSettingTab, type App, type SettingDefinitionItem } from 'obsidian';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Journal } from './provenance/journal';
@@ -50,14 +50,14 @@ export default class wikiship extends Plugin {
       this.registerView(CHANGES_VIEW_TYPE, leaf => new ChangesView(leaf, this.journal));
       const gutter = createReviewExtension(this.journal, id => new FileReviewModal(this.app, this.journal, id).open());
       this.registerEditorExtension(gutter.extension);
-      this.register(gutter.destroy);
+      this.register(() => gutter.destroy());
       this.connection = this.addStatusBarItem();
       this.connection.addClass('wikiship-statusbar');
       this.connection.setAttribute('role', 'button');
       this.connection.setAttribute('tabindex', '0');
       this.connection.addEventListener('click', () => this.run(() => this.openView(CHANGES_VIEW_TYPE)));
       this.connection.addEventListener('keydown', event => {
-        if (event instanceof KeyboardEvent && (event.key === 'Enter' || event.key === ' ')) {
+        if (event.instanceOf(KeyboardEvent) && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault(); this.run(() => this.openView(CHANGES_VIEW_TYPE));
         }
       });
@@ -78,7 +78,7 @@ export default class wikiship extends Plugin {
       this.addCommands();
       this.addSettingTab(new wikishipSettings(this.app, this));
       try {
-        this.mcpServer = new WikishipMcpServer(this.app, this.context, this.journal, files.policy, DEFAULT_MCP_PORT, this.settings.mcpToken);
+        this.mcpServer = new WikishipMcpServer(this.app, this.context, this.journal, files.policy, DEFAULT_MCP_PORT, this.settings.mcpToken, this.manifest.version);
         await this.mcpServer.start();
         this.connection.setText(this.journal.state.operations.length ? `wikiship · ${this.journal.state.operations.length} changes · review` : 'wikiship · MCP ready');
       } catch (error) {
@@ -93,7 +93,7 @@ export default class wikiship extends Plugin {
       throw error;
     }
   }
-  run(task: () => Promise<unknown> | unknown) {
+  run(task: () => unknown) {
     if (this.stopped) return;
     void Promise.resolve().then(task).catch(error => new Notice(`wikiship: ${message(error)}`, 9000));
   }
@@ -103,7 +103,7 @@ export default class wikiship extends Plugin {
     this.addCommand({ id: 'complete-changes', name: 'Approve all changes', callback: () => this.run(() => this.journal.completeAll()) });
     this.addCommand({ id: 'undo-changes', name: "Undo all machine minds' changes", callback: () => this.run(() => this.journal.undoAll()) });
     this.addCommand({ id: 'recover', name: 'Recover interrupted operations', callback: () => this.run(() => this.journal.recover()) });
-    this.addCommand({ id: 'restart-mcp', name: 'Restart wikiship MCP server', callback: () => this.restartMcp() });
+    this.addCommand({ id: 'restart-mcp', name: 'Restart MCP server', callback: () => this.restartMcp() });
   }
   async restartMcpFromSettings() { return this.restartMcp(); }
   private async restartMcp() {
@@ -112,7 +112,7 @@ export default class wikiship extends Plugin {
     try {
       const root = await realpath((this.app.vault.adapter as FileSystemAdapter).getBasePath());
       this.mcpServer = new WikishipMcpServer(this.app, this.context, this.journal,
-        new PathPolicy(root, this.app.vault.configDir, this.settings.exclusions), DEFAULT_MCP_PORT, this.settings.mcpToken);
+        new PathPolicy(root, this.app.vault.configDir, this.settings.exclusions), DEFAULT_MCP_PORT, this.settings.mcpToken, this.manifest.version);
       await this.mcpServer.start();
       this.connection?.setText('wikiship · MCP ready');
       new Notice('wikiship MCP server is ready.');
@@ -147,28 +147,53 @@ function message(error: unknown) { return error instanceof Error ? error.message
 
 class wikishipSettings extends PluginSettingTab {
   constructor(app: App, private plugin: wikiship) { super(app, plugin); }
-  display() {
-    this.containerEl.empty();
-    this.containerEl.createEl('h2', { text: 'wikiship' });
-    this.containerEl.createEl('p', { text: 'wikiship runs its own authenticated MCP server on this computer. No companion Obsidian plugin, Node.js install, or bridge is required. Pending changes and their before/after content stay in this vault’s plugin data until you undo or approve them.' });
-    new Setting(this.containerEl).setName('Connect Codex').setDesc(`MCP server: http://127.0.0.1:${DEFAULT_MCP_PORT}/mcp. Copy this block into your Codex config.toml. It contains this vault's local access token.`)
-      .addButton(button => button.setButtonText('Copy Codex config').onClick(async () => {
-        try {
-          await navigator.clipboard.writeText(codexConfig(`http://127.0.0.1:${DEFAULT_MCP_PORT}/mcp`, this.plugin.settings.mcpToken));
-          new Notice('Codex config copied. Paste it into ~/.codex/config.toml, then restart or reconnect Codex.');
-        } catch { new Notice('Could not copy the Codex config.'); }
-      }));
-    new Setting(this.containerEl).setName('MCP access token').setDesc('Stored in this vault’s wikiship plugin data. Regenerate it if you shared the Codex configuration with someone else.')
-      .addButton(button => button.setButtonText('Regenerate').onClick(async () => {
-        this.plugin.settings.mcpToken = randomBytes(32).toString('hex');
-        await this.plugin.saveData(this.plugin.settings);
-        await this.plugin.restartMcpFromSettings();
-        new Notice('wikiship token regenerated. Copy the updated Codex config.');
-      }));
-    new Setting(this.containerEl).setName('Excluded directory names').setDesc('One name per line. Applies only to wikiship reads and writes. Obsidian settings are unchanged. Reload wikiship after editing.').addTextArea(input => input.setValue(this.plugin.settings.exclusions.join('\n')).onChange(async value => {
-      const exclusions = value.split('\n').map(line => line.trim()).filter(Boolean);
-      if (exclusions.some(name => name.includes('/') || name.includes('\\') || name === '.' || name === '..')) return;
-      this.plugin.settings = { ...this.plugin.settings, exclusions }; await this.plugin.saveData(this.plugin.settings);
-    }));
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      { type: 'group', heading: 'wikiship', items: [
+        { name: 'About', desc: 'wikiship runs an authenticated local MCP server. Pending changes and their before/after content stay in this vault’s plugin data until you undo or approve them.' },
+      ] },
+      { type: 'group', heading: 'Connection', items: [
+        {
+          name: 'Codex config',
+          desc: 'Select the text below and copy it into your Codex config.toml. It contains this vault’s local access token.',
+          render: setting => {
+            setting.addTextArea(area => {
+              area.setValue(codexConfig(`http://127.0.0.1:${DEFAULT_MCP_PORT}/mcp`, this.plugin.settings.mcpToken));
+              area.inputEl.rows = 4;
+              area.inputEl.setAttribute('readonly', '');
+              area.inputEl.setAttribute('spellcheck', 'false');
+              area.inputEl.setAttribute('aria-label', 'Codex MCP configuration');
+            });
+          },
+        },
+        {
+          name: 'MCP access token',
+          desc: 'Stored in this vault’s wikiship plugin data. Regenerate it if you shared the Codex configuration with someone else.',
+          render: setting => {
+            setting.addButton(button => button.setButtonText('Regenerate').onClick(async () => {
+              this.plugin.settings.mcpToken = randomBytes(32).toString('hex');
+              await this.plugin.saveData(this.plugin.settings);
+              await this.plugin.restartMcpFromSettings();
+              this.update();
+              new Notice('wikiship token regenerated. Copy the updated Codex config.');
+            }));
+          },
+        },
+      ] },
+      { type: 'group', heading: 'Access', items: [
+        {
+          name: 'Excluded directory names',
+          desc: 'One name per line. Applies only to wikiship reads and writes. Obsidian settings are unchanged. Reload wikiship after editing.',
+          render: setting => {
+            setting.addTextArea(input => input.setValue(this.plugin.settings.exclusions.join('\n')).onChange(async value => {
+              const exclusions = value.split('\n').map(line => line.trim()).filter(Boolean);
+              if (exclusions.some(name => name.includes('/') || name.includes('\\') || name === '.' || name === '..')) return;
+              this.plugin.settings = { ...this.plugin.settings, exclusions };
+              await this.plugin.saveData(this.plugin.settings);
+            }));
+          },
+        },
+      ] },
+    ];
   }
 }

@@ -278,11 +278,12 @@ export class Journal {
       // restart after the trash operation), or the requested deletion happened
       // outside wikiship. Either way, there is no vault file left to remove.
       if (!current) continue;
-      if (current.hash !== op.before?.hash) throw new Error(`Conflict: ${op.path} changed after the deletion was staged. Nothing was cleared.`);
+      const before = op.before;
+      if (!before || current.hash !== before.hash) throw new Error(`Conflict: ${op.path} changed after the deletion was staged. Nothing was cleared.`);
       op.status = 'committing-delete'; await this.updateOperation(op);
       try {
-        if (op.kind === 'delete-folder') await this.files.trashFolder(op.path, op.before!);
-        else await this.files.trash(op.path, op.before!);
+        if (op.kind === 'delete-folder') await this.files.trashFolder(op.path, before);
+        else await this.files.trash(op.path, before);
       }
       catch (error) {
         const latest = await this.readOperationPath(op, op.path).catch(() => op.before);

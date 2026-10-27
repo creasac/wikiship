@@ -51,17 +51,18 @@ async function fixture() {
       create: async (path: string, value: string) => { await fs.writeFile(join(root, path), value, { flag: 'wx' }); return track(path); },
       createBinary: async (path: string, value: ArrayBuffer) => { await fs.writeFile(join(root, path), new Uint8Array(value), { flag: 'wx' }); return track(path); },
       createFolder: async (path: string) => { await fs.mkdir(join(root, path)); return trackFolder(path); },
-      delete: async (file: TFile) => { await adapter.remove(file.path); tracked.delete(file.path); },
-      trash: async (file: TFile | TFolder, system: boolean) => {
-        expect(system).toBe(false); await fs.rm(join(root, file.path), { recursive: true, force: true });
-        tracked.delete(file.path); folders.delete(file.path);
-      },
       rename: async (file: TFile | TFolder, target: string) => {
         const source = file.path; await adapter.rename(source, target);
         if (file instanceof TFolder) { folders.delete(source); file.path = target; folders.set(target, file); }
         else { tracked.delete(source); file.path = target; tracked.set(target, file); }
       },
       process: async (file: TFile, update: (text: string) => string) => adapter.process(file.path, update),
+    },
+    fileManager: {
+      trashFile: async (file: TFile | TFolder) => {
+        await fs.rm(join(root, file.path), { recursive: true, force: true });
+        tracked.delete(file.path); folders.delete(file.path);
+      },
     },
   } as unknown as App;
   let saved: State | null = null;

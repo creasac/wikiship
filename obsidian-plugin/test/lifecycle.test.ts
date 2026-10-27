@@ -3,9 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileSystemAdapter, type App, type PluginManifest } from 'obsidian';
-import wikiship from '../src/main';
 import { AtomicStateStore } from '../src/provenance/storage';
-import { waitForJournalShutdown } from '../src/provenance/lifecycle';
 import type { Operation, Snapshot } from '../src/model';
 
 // Only the desktop UI boundary is mocked. Startup, journal queue, persistence,
@@ -37,6 +35,12 @@ vi.mock('../src/context/editor', () => ({ EditorContext: class {} }));
 vi.mock('../src/review/views', () => ({ ChangesView: class {}, FileReviewModal: class {}, RevertFileModal: class {}, CHANGES_VIEW_TYPE: 'changes', nextUnreviewed: vi.fn() }));
 vi.mock('../src/review/gutter', () => ({ createReviewExtension: () => ({ extension: [], destroy() {} }) }));
 
+// Obsidian runs this module in a renderer. Provide its shared window object so
+// the reload test exercises the same cross-module shutdown barrier under Node.
+vi.stubGlobal('window', {});
+const { default: wikiship } = await import('../src/main');
+const { waitForJournalShutdown } = await import('../src/provenance/lifecycle');
+
 const roots: string[] = [];
 function gate() { let release!: () => void; const promise = new Promise<void>(resolve => { release = resolve; }); return { promise, release }; }
 async function fixture() {
@@ -51,7 +55,7 @@ async function fixture() {
 }
 afterEach(async () => { vi.restoreAllMocks(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 
-async function blockedMutation(plugin: wikiship) {
+async function blockedMutation(plugin: InstanceType<typeof wikiship>) {
   const entered = gate(), finish = gate(), save = AtomicStateStore.prototype.save;
   vi.spyOn(AtomicStateStore.prototype, 'save').mockImplementationOnce(async function(this: AtomicStateStore, state) { entered.release(); await finish.promise; return save.call(this, state); });
   const pending = plugin.journal.mutate({ kind: 'create', path: 'synthetic.md', content: 'synthetic test content' });
@@ -71,7 +75,7 @@ describe('plugin journal lifecycle', () => {
         { id: 'complete-changes', name: 'Approve all changes' },
         { id: 'undo-changes', name: "Undo all machine minds' changes" },
         { id: 'recover', name: 'Recover interrupted operations' },
-        { id: 'restart-mcp', name: 'Restart wikiship MCP server' },
+        { id: 'restart-mcp', name: 'Restart MCP server' },
       ]);
     } finally { instance.onunload(); await waitForJournalShutdown(directory); }
   });

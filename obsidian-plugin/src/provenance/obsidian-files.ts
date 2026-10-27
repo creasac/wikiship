@@ -50,7 +50,7 @@ export class ObsidianFiles implements WorkspaceFiles {
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) throw new MutationPreconditionError('Conflict: the file is no longer available to move to trash.');
     // `false` selects Obsidian's configured vault trash, not permanent deletion.
-    await this.app.vault.trash(file, false);
+    await this.app.fileManager.trashFile(file);
   }
   private editors(path: string) {
     return this.app.workspace.getLeavesOfType('markdown').flatMap(leaf => {
@@ -127,7 +127,7 @@ export class ObsidianFiles implements WorkspaceFiles {
     await this.assertFolderState(path, expected);
     const folder = this.app.vault.getAbstractFileByPath(path);
     if (!(folder instanceof TFolder)) throw new MutationPreconditionError('Conflict: the folder is no longer available to move to trash.');
-    await this.app.vault.trash(folder, false);
+    await this.app.fileManager.trashFile(folder);
   }
   private async create(path: string, value: Snapshot) {
     await this.assertState(path, null);
@@ -159,7 +159,7 @@ export class ObsidianFiles implements WorkspaceFiles {
     if (to === null) {
       this.assertEditors(op.path, from);
       const file = this.app.vault.getAbstractFileByPath(op.path);
-      if (file instanceof TFile) await this.app.vault.delete(file);
+      if (file instanceof TFile) await this.app.fileManager.trashFile(file);
       else await this.app.vault.adapter.remove(op.path);
       return;
     }

@@ -1,5 +1,5 @@
 import { TFile, TFolder, type App } from 'obsidian';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { currentHeadings } from '../context/editor';
 import { textOf } from '../model';
 import type { Journal } from '../provenance/journal';

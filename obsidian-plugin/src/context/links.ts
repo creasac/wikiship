@@ -12,7 +12,7 @@ export interface ContextLink {
 
 // Extend the existing Markdown parser so escaped text and code examples are not
 // mistaken for links. Parse the source buffer to retain syntax around a selection.
-const wikiLink = /!?\[\[([^\[\]\r\n]+)\]\]/y;
+const wikiLink = /!?\[\[([^\x5B\x5D\r\n]+)\]\]/y;
 const linkParser = parser.configure({
   defineNodes: ['WikiLink'],
   parseInline: [{

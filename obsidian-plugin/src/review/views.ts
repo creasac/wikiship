@@ -10,14 +10,16 @@ export const CHANGES_VIEW_TYPE = 'wikiship-changes';
 
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String(error); }
 
-function action(parent: HTMLElement, label: string, callback: () => unknown | Promise<unknown>, cls?: string) {
+function action(parent: HTMLElement, label: string, callback: () => unknown, cls?: string) {
   const button = parent.createEl('button', { text: label, cls, attr: { type: 'button' } });
-  button.addEventListener('click', async () => {
+  button.addEventListener('click', () => {
     if (button.disabled) return;
     button.disabled = true;
-    try { await callback(); }
-    catch (error) { new Notice(errorMessage(error), 9000); }
-    finally { button.disabled = false; }
+    void (async () => {
+      try { await callback(); }
+      catch (error) { new Notice(errorMessage(error), 9000); }
+      finally { button.disabled = false; }
+    })();
   });
   return button;
 }
