@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
 
 const tag = process.argv[2];
-const version = tag?.replace(/^v/, '');
+const version = tag;
 if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
-  throw new Error('Expected a release tag in vMAJOR.MINOR.PATCH form.');
+  throw new Error('Expected a release tag matching MAJOR.MINOR.PATCH exactly, without a v prefix.');
 }
 
 const readJson = async path => JSON.parse(await readFile(new URL(`../${path}`, import.meta.url), 'utf8'));
