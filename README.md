@@ -1,4 +1,12 @@
-# wikiship
+<h3 align="center">wikiship</h3>
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/325cda9d-f81e-4fcc-807c-548034a3b007" width="64">
+</p>
+
+<p align="center">what do the machine minds say?</p>
+
+---
 
 An Obsidian desktop plugin that connects local MCP clients to vault content and records file changes for review.
 
